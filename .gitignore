@@ -1,0 +1,6 @@
+.vs/
+.vscode/
+
+ManifestDownloader
+ManifestDownloader.exe
+*.o
