@@ -52,7 +52,7 @@ void hex2bytes(const char* input, void* output, int input_length)
     }
 }
 
-// converts input_length bytes from input in uppercase hexadecimal representation and saves them in output.
+// converts input_length bytes from input into uppercase hexadecimal representation and saves them in output.
 // Will not modify input, add a null byte at the end of output, or allocate the output buffer (make sure it's big enough)
 void bytes2hex(const void* input, char* output, int input_length)
 {

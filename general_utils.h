@@ -8,6 +8,10 @@ extern "C" {
 #include <inttypes.h>
 #include <stdbool.h>
 
+#ifdef _WIN64
+    #define stat _stat64
+#endif
+
 char* lower(const char* string);
 
 char* lower_inplace(char* string);
@@ -29,8 +33,8 @@ int create_dirs(char* dir_path, bool create_first, bool create_last);
 #undef max
 #endif
 #define max(a, b) __extension__ ({ \
-    typeof(a) _a = (a); \
-    typeof(b) _b = (b); \
+    __typeof__(a) _a = (a); \
+    __typeof__(b) _b = (b); \
     _a > _b ? _a : _b; \
 })
 
@@ -55,13 +59,15 @@ typedef struct {
     uint8_t* data;
 } BinaryData;
 
+#define initialize_list(list) do { \
+    (list)->length = 0; \
+    (list)->allocated_length = 16; \
+    (list)->objects = malloc(16 * sizeof((list)->objects[0])); \
+} while (0)
+
 #define add_object(list, object) do { \
-    if ((list)->allocated_length == 0) { \
-        (list)->objects = malloc(16 * sizeof(__typeof__(*object))); \
-        (list)->length = 0; \
-        (list)->allocated_length = 16; \
-    } else if ((list)->length == (list)->allocated_length) { \
-        (list)->objects = realloc((list)->objects, ((list)->allocated_length + ((list)->allocated_length >> 1)) * sizeof(__typeof__(*object))); \
+    if ((list)->length == (list)->allocated_length) { \
+        (list)->objects = realloc((list)->objects, ((list)->allocated_length + ((list)->allocated_length >> 1)) * sizeof(*object)); \
         (list)->allocated_length += (list)->allocated_length >> 1; \
     } \
  \
@@ -78,11 +84,7 @@ typedef struct {
 } while (0)
 
 #define add_objects(list, position, amount) do { \
-    if ((list)->allocated_length == 0) { \
-        (list)->objects = malloc((amount) * sizeof((list)->objects[0])); \
-        (list)->length = 0; \
-        (list)->allocated_length = amount; \
-    } else if ((list)->allocated_length - ((list)->length) < (amount)) { \
+    if ((list)->allocated_length - ((list)->length) < (amount)) { \
         (list)->objects = realloc((list)->objects, ((list)->length + (amount)) * sizeof((list)->objects[0])); \
         (list)->allocated_length = (list)->length + (amount); \
     } \
@@ -92,47 +94,50 @@ typedef struct {
 } while (0)
 
 #define find_object_s(list, out_object, key, value) do { \
-    uint32_t position = (list)->length / 2; \
-    for (int step = position / 2; step > 2; step /= 2) { \
-        if ((list)->objects[position].key > (value)) \
-            position -= step; \
-        else \
-            position += step; \
+    if ((list)->length != 0) { \
+        uint32_t position = (list)->length / 2; \
+        for (int step = position / 2; step > 2; step /= 2) { \
+            if ((list)->objects[position].key > (value)) \
+                position -= step; \
+            else \
+                position += step; \
+        } \
+        while (position > 0 && (list)->objects[position].key > (value)) \
+            position--; \
+        while (position < (list)->length-1 && (list)->objects[position].key < (value)) \
+            position++; \
+        if ((list)->objects[position].key == (value)) \
+            (out_object) = &(list)->objects[position]; \
     } \
-    while (position > 0 && (list)->objects[position].key > (value)) \
-        position--; \
-    while (position < (list)->length-1 && (list)->objects[position].key < (value)) \
-        position++; \
-    if ((list)->objects[position].key == (value)) \
-        *(out_object) = (list)->objects[position]; \
 } while (0)
 
 
 #define add_object_s(list, object, key) do { \
-    if ((list)->allocated_length == 0) { \
-        (list)->objects = malloc(16 * sizeof(__typeof__(*object))); \
-        (list)->length = 0; \
-        (list)->allocated_length = 16; \
-    } else if ((list)->length == (list)->allocated_length) { \
-        (list)->objects = realloc((list)->objects, ((list)->allocated_length + ((list)->allocated_length >> 1)) * sizeof(__typeof__(*object))); \
-        (list)->allocated_length += (list)->allocated_length >> 1; \
+    if ((list)->length == 0) { \
+        (list)->objects[(list)->length] = *object; \
+        (list)->length++; \
+    } else { \
+        if ((list)->length == (list)->allocated_length) { \
+            (list)->objects = realloc((list)->objects, ((list)->allocated_length + ((list)->allocated_length >> 1)) * sizeof(*object)); \
+            (list)->allocated_length += (list)->allocated_length >> 1; \
+        } \
+    \
+        uint32_t position = (list)->length / 2; \
+        for (int step = position / 2; step > 2; step /= 2) { \
+            if ((list)->objects[position].key > (object)->key) \
+                position -= step; \
+            else \
+                position += step; \
+        } \
+        while (position > 0 && (list)->objects[position].key > (object)->key) \
+            position--; \
+        while (position < (list)->length && (list)->objects[position].key < (object)->key) \
+            position++; \
+        if (position < (list)->length) \
+            memmove(&(list)->objects[position + 1], &(list)->objects[position], ((list)->length - position) * sizeof(*object)); \
+        (list)->objects[position] = *object; \
+        (list)->length++; \
     } \
- \
-    uint32_t position = (list)->length / 2; \
-    for (int step = position / 2; step > 2; step /= 2) { \
-        if ((list)->objects[position].key > (object)->key) \
-            position -= step; \
-        else \
-            position += step; \
-    } \
-    while (position > 0 && (list)->objects[position].key > (object)->key) \
-        position--; \
-    while (position < (list)->length && (list)->objects[position].key < (object)->key) \
-        position++; \
-    if (position < (list)->length) \
-        memmove(&(list)->objects[position + 1], &(list)->objects[position], ((list)->length - position) * sizeof(__typeof__(*object))); \
-    (list)->objects[position] = *object; \
-    (list)->length++; \
 } while (0)
 
 #define sort_list(list, key) do { \

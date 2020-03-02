@@ -16,14 +16,17 @@
 #include <assert.h>
 
 #include "socket_utils.h"
+#include "defs.h"
+#include "rman.h"
 #include "general_utils.h"
+
 
 int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port)
 {
     struct addrinfo* addrinfos;
-    if (getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_INET, .ai_socktype = SOCK_STREAM}, &addrinfos) != 0) {
-        fprintf(stderr, "Error: getaddrinfo failed.\n");
-        printf("error code: %d\n", getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_INET, .ai_socktype = SOCK_STREAM}, &addrinfos));   
+    if (getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM, .ai_flags = AI_CANONNAME}, &addrinfos) != 0) {
+        eprintf("Error: getaddrinfo failed.\n");
+        printf("error code: %d\n", getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_INET6, .ai_socktype = SOCK_STREAM}, &addrinfos));   
         exit(EXIT_FAILURE);
     }
 
@@ -31,6 +34,11 @@ int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port)
     int socket_fd;
     for (_addrinfo = addrinfos; _addrinfo != NULL; _addrinfo = _addrinfo->ai_next)
     {
+        // if (_addrinfo->ai_canonname && strstr(_addrinfo->ai_canonname, "cloudflare")) {
+            // printf("skipping this server (%s), as it's cloudflare.\n", _addrinfo->ai_canonname);
+            // continue;
+        // }
+        printf("canon name of what i'm about to connect to: \"%s\"\n", _addrinfo->ai_canonname);
         //Create socket
         if ((socket_fd = socket(_addrinfo->ai_family, _addrinfo->ai_socktype, _addrinfo->ai_protocol)) == -1)
         {
@@ -98,24 +106,173 @@ int receive_data(int socket, char* buffer, size_t length)
     return 0;
 }
 
-int download_file(char* url, char* path)
+char* get_host(char* url, int* host_end)
 {
-    printf("file to download: \"%s\"\n", url);
-    char* host = url;
+    char* start_of_host = url;
     if (strncmp(url, "https://", 8) == 0) {
-        host += 8;
+        start_of_host += 8;
     }
-    char* url_path = strstr(host, "/") + 1;
-    *(url_path-1) = '\0';
-    // printf("url here: \"%s\"\n", url);
-    // printf("host here: \"%s\"\n", host);
+    char* end_of_host = strstr(start_of_host, "/");
+    int string_length = end_of_host - start_of_host;
+    char* host = malloc(string_length + 1);
+    memcpy(host, start_of_host, string_length);
+    host[string_length] = '\0';
+
+    if (host_end)
+        *host_end = end_of_host - url;
+    return host;
+}
+
+BinaryData* receive_http_body(int* socket, char* request, char* host)
+{
+    int retries = 10;
+    send_data(*socket, request, strlen(request));
+    char* header_buffer = calloc(8193, 1);
+    int received = recv(*socket, header_buffer, 8192, 0);
+    dprintf("received header:\n\"%s\"\n", header_buffer);
+    bool refresh = strstr(header_buffer, "Connection: close\r\n");
+    while (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0 && retries --> 0) {
+        dprintf("Got a 404. Will retry %d time%s.\n", retries + 1, retries > 0 ? "s" : "");
+        if (refresh) {
+            close(*socket);
+            *socket = open_connection_s(host, "80");
+        }
+        send_data(*socket, request, strlen(request));
+        received = recv(*socket, header_buffer, 8192, 0);
+        refresh = strstr(header_buffer, "Connection: close\r\n");
+    }
+    if (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0 && retries == 0) {
+        dprintf("Retries failed. Will retry one last time with a new connection.\n");
+        close(*socket);
+        *socket = open_connection_s(host, "80");
+        send_data(*socket, request, strlen(request));
+        received = recv(*socket, header_buffer, 8192, 0);
+        refresh = strstr(header_buffer, "Connection: close\r\n");
+    }
+    if (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0) {
+        eprintf("Got too many 404s. Can't continue.\n");
+        exit(EXIT_FAILURE);
+    } else if (strncmp(header_buffer, "HTTP/1.1 416", 12) == 0) {
+        eprintf("Error: Got a 416 response.\n");
+        exit(EXIT_FAILURE);
+    }
+    char* start_of_body = strstr(header_buffer, "\r\n\r\n") + 4;
+    char* content_length_position = strstr(header_buffer, "Content-Length:");
+    int already_received = received - (start_of_body - header_buffer);
+    // printf("already received here %d\n", total_received);
+    BinaryData* body = malloc(sizeof(BinaryData));
+    if (content_length_position) {
+        body->length = strtol(content_length_position + 16, NULL, 10);
+        body->data = malloc(body->length);
+        memcpy(body->data, start_of_body, already_received);
+        free(header_buffer);
+        receive_data(*socket, (char*) &body->data[already_received], body->length - already_received);
+    } else {
+        assert(refresh);
+        body->length = already_received;
+        uint64_t buffer_size = 8192 + (8192 >> 1);
+        body->data = malloc(buffer_size);
+        memcpy(body->data, start_of_body, already_received);
+        free(header_buffer);
+        while ( (received = recv(*socket, &body->data[body->length], buffer_size - body->length, 0)) != 0) {
+            body->length += received;
+            // printf("received: %d, total received: %d\n", received, total_received);
+            if (body->length == buffer_size) {
+                buffer_size += buffer_size >> 1;
+                body->data = realloc(body->data, buffer_size);
+            }
+        }
+    }
+    if (refresh) {
+        close(*socket);
+        *socket = open_connection_s(host, "80");
+    }
+    return body;
+}
+
+// backup method if download_ranges() fails with a 416 because of fucking rito servers
+// TODO, will probably be a full bundle download method
+
+struct chunk_to_range {
+    Chunk* chunk;
+    uint32_t range_index;
+    uint32_t chunk_index;
+};
+
+uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
+{
+    int host_end;
+    char* host = get_host(url, &host_end);
+    char request_header[8192];
+    LIST(struct chunk_to_range) chunks_to_ranges;
+    initialize_list(&chunks_to_ranges);
+    add_object(&chunks_to_ranges, (&(struct chunk_to_range) {.chunk = &chunks->objects[0], .range_index = 0, .chunk_index = 0}));
+    uint32_t last_chunk = 0;
+    uint32_t last_range = 0;
+    sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + host_end, host);
+    char range[17];
+    for (uint32_t i = 1; i < chunks->length; i++) {
+        if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size == chunks->objects[i].bundle_offset) {
+            struct chunk_to_range new_entry = {
+                .chunk = &chunks->objects[i],
+                .range_index = last_range,
+                .chunk_index = last_chunk
+            };
+            add_object(&chunks_to_ranges, &new_entry);
+        } else {
+            sprintf(range, "%u-%u,", chunks->objects[last_chunk].bundle_offset, chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size - 1);
+            strcat(request_header, range);
+            last_range++;
+            last_chunk = i;
+            struct chunk_to_range new_entry = {
+                .chunk = &chunks->objects[i],
+                .range_index = last_range,
+                .chunk_index = last_chunk
+            };
+            add_object(&chunks_to_ranges, &new_entry);
+        }
+    }
+    sprintf(range, "%u-%u,\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
+    strcat(request_header, range);
+    assert(strlen(request_header) < 8192);
+    printf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
+    printf("request header:\n\"%s\"\n", request_header);
+    BinaryData* body = receive_http_body(socket, request_header, host);
+    uint8_t** ranges = malloc(chunks->length * sizeof(char*));
+    if (chunks->length == 1) {
+        ranges[0] = body->data;
+        free(body);
+    } else {
+        char* pos = (char*) body->data;
+        if (chunks_to_ranges.objects[chunks_to_ranges.length-1].range_index != 0)
+            pos = strstr(pos, "\r\n\r\n") + 4;
+        for (uint32_t i = 0; i < chunks->length; i++) {
+            if (i != 0 && chunks_to_ranges.objects[i].range_index > chunks_to_ranges.objects[i-1].range_index)
+                pos = strstr(pos, "\r\n\r\n") + 4;
+            // printf("pos: %p\n", pos);
+            ranges[i] = malloc(chunks->objects[i].compressed_size);
+            memcpy(ranges[i], pos, chunks->objects[i].compressed_size);
+            pos += chunks->objects[i].compressed_size;
+        }
+        // fwrite(buffer, total_received, 1, stdout);
+        free(body->data);
+        free(body);
+    }
+    free(host);
+
+    return ranges;
+}
+
+int download_url(char* url, char* path)
+{
+    int host_end;
+    dprintf("file to download: \"%s\"\n", url);
+    char* host = get_host(url, &host_end);
     int socket = open_connection_s(host, "80");
     char request_header[1024];
-    assert(sprintf(request_header, "GET /%s HTTP/1.1\r\nHost: %s\r\n\r\n", url_path, host) < 1024);
-    *(url_path-1) = '/';
-    // printf("request header:\n\"%s\"\n", request_header);
+    assert(sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", url + host_end, host) < 1024);
+    free(host);
     send_data(socket, request_header, strlen(request_header));
-    // printf("return value: %d\n", receive_data(socket, buffer, 1024));
     char* buffer = calloc(8192, 1);
     int received = recv(socket, buffer, 8192, 0);
     // printf("received header:\n\"%s\"\n", buffer);
@@ -125,17 +282,10 @@ int download_file(char* url, char* path)
     pos = strstr(pos, "\r\n\r\n") + 4;
     char* response = malloc(content_length);
     int already_received = received - (pos - buffer);
-    // printf("already received? %d, but the amount of bytes i got was %d\n", already_received, received);
     memcpy(response, pos, already_received);
     free(buffer);
-    // printf("started receiving all data...\n");
     receive_data(socket, &response[already_received], content_length - already_received);
-    // printf("finished receiving all data.\n");
-    #ifdef _WIN32
-        closesocket(socket);
-    #else
-        close(socket);
-    #endif
+    close(socket);
     FILE* output = fopen(path, "wb");
     if (!output) {
         fprintf(stderr, "Error: Couldn't open output file \"%s\".\n", path);

@@ -6,12 +6,19 @@
 #include "general_utils.h"
 #include "defs.h"
 
+typedef struct vtable {
+    uint16_t vtable_size;
+    uint16_t object_size;
+    uint16_t offsets[];
+} VTable;
+
 typedef struct chunk {
     uint32_t compressed_size;
     uint32_t uncompressed_size;
     uint64_t chunk_id;
     struct bundle* bundle;
-    uint32_t offset;
+    uint32_t bundle_offset;
+    uint32_t file_offset;
 } Chunk;
 
 typedef LIST(Chunk) ChunkList;
@@ -68,6 +75,8 @@ struct manifest {
 
 typedef struct manifest Manifest;
 Manifest* parse_manifest(char* filepath);
+
+int extract_file(File* file, char* output_path, bool overwrite);
 
 
 #endif

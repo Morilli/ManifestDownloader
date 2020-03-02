@@ -4,12 +4,61 @@
 #include <string.h>
 #include <inttypes.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include "general_utils.h"
 #include "defs.h"
 #include "rman.h"
 
 #include <zstd.h>
+
+uint8_t* load_chunk(Chunk* chunk, char* bundle_path)
+{
+    char path[256];
+    assert(sprintf(path, "%s/%016"PRIX64".bundle", bundle_path, chunk->bundle->bundle_id) < 256);
+    dprintf("loading chunk from bundle %s\n", path);
+    FILE* bundle = fopen(path, "rb");
+    if (!bundle) {
+        eprintf("Error: Failed to open bundle at \"%s\".\n", path);
+        exit(EXIT_FAILURE);
+    }
+
+    uint8_t* buffer = malloc(chunk->compressed_size);
+    fseek(bundle, chunk->bundle_offset, SEEK_CUR);
+    assert(fread(buffer, 1, chunk->compressed_size, bundle) == chunk->compressed_size);
+    fclose(bundle);
+    uint8_t* chunk_data = malloc(chunk->uncompressed_size);
+    ZSTD_decompress(chunk_data, chunk->uncompressed_size, buffer, chunk->compressed_size);
+    free(buffer);
+    return chunk_data;
+}
+
+int extract_file(File* file, char* output_path, bool overwrite)
+{
+    char path[256];
+    assert(sprintf(path, "%s/%s", output_path, file->name) < 256);
+    printf("output path: %s\n", path);
+    create_dirs(path, false, false);
+    if (!overwrite && access(path, F_OK) == 0)
+        return 0;
+    FILE* output_file = fopen(path, "wb");
+    if (!output_file) {
+        eprintf("Error: Failed to open output file (%s).", path);
+        exit(EXIT_FAILURE);
+    }
+
+    for (uint32_t i = 0; i < file->chunks.length; i++) {
+        uint8_t* chunk_data = load_chunk(&file->chunks.objects[i], output_path);
+        fwrite(chunk_data, 1, file->chunks.objects[i].uncompressed_size, output_file);
+        free(chunk_data);
+        // rename()
+    }
+    fclose(output_file);
+
+    return 0;
+}
+
+
 
 char* unpack_string(uint8_t* string_position)
 {
@@ -37,37 +86,44 @@ int parse_body(Manifest* manifest, uint8_t* body)
     uint32_t offset;
 
     // bundles (and their chunks)
+    initialize_list(&manifest->bundles);
+    initialize_list(&manifest->chunks);
     count = *(uint32_t*) (body + offsets[0]);
     offset = offsets[0] + 4;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t bundle_offset = offset + *(uint32_t*) (body + offset) + 4;
         int header_length = *(int32_t*) (body + bundle_offset);
-        Bundle new_bundle = {.bundle_id = *(uint64_t*) (body + bundle_offset + 4)};
+        Bundle* new_bundle = malloc(sizeof(Bundle));
+        new_bundle->bundle_id = *(uint64_t*) (body + bundle_offset + 4);
         bundle_offset += header_length;
         // for (int i = 0; i < 64; i++) {
         //     printf("%02X ", body[bundle_offset + i]);
         // }
         // printf("\n");
 
+        initialize_list(&new_bundle->chunks);
         uint32_t chunk_amount = *(uint32_t*) (body + bundle_offset);
         for (uint32_t i = 0; i < chunk_amount; i++) {
-            uint32_t chunk_offset = bundle_offset + 4*i + *(uint32_t*) (body + bundle_offset + 4 + 4*i) + 8;
+            uint32_t chunk_offset = bundle_offset + 4*i + *(uint32_t*) (body + bundle_offset + 4 + 4*i) + 4;
+            VTable* chunk_vtable = (VTable*) (body + chunk_offset - *(int32_t*) (body + chunk_offset));
+            chunk_offset += 4;
 
             Chunk new_chunk = {
                 .compressed_size = *(uint32_t*) (body + chunk_offset),
                 .uncompressed_size = *(uint32_t*) (body + chunk_offset + 4),
                 .chunk_id = *(uint64_t*) (body + chunk_offset + 8),
-                .offset = new_bundle.chunks.length == 0 ? 0 : new_bundle.chunks.objects[new_bundle.chunks.length - 1].offset + new_bundle.chunks.objects[new_bundle.chunks.length - 1].compressed_size,
-                .bundle = &manifest->bundles.objects[manifest->bundles.length]
+                .bundle_offset = new_bundle->chunks.length == 0 ? 0 : new_bundle->chunks.objects[new_bundle->chunks.length - 1].bundle_offset + new_bundle->chunks.objects[new_bundle->chunks.length - 1].compressed_size,
+                .bundle = new_bundle
             };
-            add_object(&new_bundle.chunks, &new_chunk);
+            add_object(&new_bundle->chunks, &new_chunk);
             add_object(&manifest->chunks, &new_chunk);
         }
-        add_object(&manifest->bundles, &new_bundle);
+        add_object(&manifest->bundles, new_bundle);
         offset += 4;
     }
 
     // languages
+    initialize_list(&manifest->languages);
     count = *(uint32_t*) (body + offsets[1]);
     offset = offsets[1] + 4;
     for (uint32_t i = 0; i < count; i++) {
@@ -85,32 +141,35 @@ int parse_body(Manifest* manifest, uint8_t* body)
         // printf("language at %d: %s\n", i, manifest->languages.objects[i].name);
     // }
 
-    printf("started sorting...\n");
+    dprintf("started sorting...\n");
     sort_list(&manifest->chunks, chunk_id);
     // for (uint32_t i = 0; i < manifest->chunks.length; i++) {
     //     printf("chunk_id: %016"PRIX64"\n", manifest->chunks.objects[i].chunk_id);
     // }
     // exit(EXIT_FAILURE);
-    printf("finished sorting\n");
+    dprintf("finished sorting\n");
 
-    // TODO: parse files, file entries and directories 
-    FileEntryList file_entries = {0};
+    // file entries
+    FileEntryList file_entries;
+    initialize_list(&file_entries);
     count = *(uint32_t*) (body + offsets[2]);
     offset = offsets[2] + 4;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t file_entry_offset = offset + *(uint32_t*) (body + offset);
+        VTable* file_entry_vtable = (VTable*) (body + file_entry_offset - *(int32_t*) (body + file_entry_offset));
 
-        int32_t offsettable_offset = file_entry_offset - *(int32_t*) (body + file_entry_offset);
-        uint16_t* file_entry_offsets = (uint16_t*) (body + offsettable_offset);
         FileEntry new_file_entry = {
-            .file_entry_id = *(uint64_t*) (body + file_entry_offset + file_entry_offsets[2]),
-            .directory_id = file_entry_offsets[3] ? *(uint64_t*) (body + file_entry_offset + file_entry_offsets[3]) : 0,
-            .file_size = *(uint32_t*) (body + file_entry_offset + file_entry_offsets[4]),
-            .name = jump_unpack_string(body + file_entry_offset + file_entry_offsets[5]),
-            .link = jump_unpack_string(body + file_entry_offset + file_entry_offsets[11])
+            .file_entry_id = *(uint64_t*) (body + file_entry_offset + file_entry_vtable->offsets[0]),
+            .directory_id = file_entry_vtable->offsets[1] ? *(uint64_t*) (body + file_entry_offset + file_entry_vtable->offsets[1]) : 0,
+            .file_size = *(uint32_t*) (body + file_entry_offset + file_entry_vtable->offsets[2]),
+            .name = jump_unpack_string(body + file_entry_offset + file_entry_vtable->offsets[3]),
+            .link = jump_unpack_string(body + file_entry_offset + file_entry_vtable->offsets[9])
         };
-        add_objects(&new_file_entry.chunk_ids, body + file_entry_offset + file_entry_offsets[1] + 4, *(uint32_t*) (body + file_entry_offset + file_entry_offsets[1]));
-        uint64_t language_mask = *(uint64_t*) (body + file_entry_offset + file_entry_offsets[6]);
+        initialize_list(&new_file_entry.chunk_ids);
+        uint8_t* chunks_position = body + file_entry_offset + file_entry_vtable->offsets[7] + *(uint32_t*) (body + file_entry_offset + file_entry_vtable->offsets[7]);
+        add_objects(&new_file_entry.chunk_ids, chunks_position + 4, *(uint32_t*) chunks_position);
+        uint64_t language_mask = *(uint64_t*) (body + file_entry_offset + file_entry_vtable->offsets[4]);
+        initialize_list(&new_file_entry.language_ids);
         for (int i = 0; i < 64; i++) {
             if (language_mask & (1 << i))
                 add_object(&new_file_entry.language_ids, &(uint8_t) {i+1});
@@ -118,9 +177,11 @@ int parse_body(Manifest* manifest, uint8_t* body)
         add_object(&file_entries, &new_file_entry);
 
         offset += 4;
-    } 
+    }
 
+    // directories
     DirectoryList directories = {0};
+    initialize_list(&directories);
     count = *(uint32_t*) (body + offsets[3]);
     offset = offsets[3] + 4;
     for (uint32_t i = 0; i < count; i++) {
@@ -138,6 +199,8 @@ int parse_body(Manifest* manifest, uint8_t* body)
         offset += 4;
     }
 
+    // merge directories and file_entries together to a list of files
+    initialize_list(&manifest->files);
     for (uint32_t i = 0; i < file_entries.length; i++) {
         File new_file = {
             .file_size = file_entries.objects[i].file_size,
@@ -161,14 +224,18 @@ int parse_body(Manifest* manifest, uint8_t* body)
             assert(sprintf(temp_name, "%s/%s", directory_name, backup_name) < 256);
         }
         new_file.name = strdup(temp_name);
+        initialize_list(&new_file.chunks);
+        uint32_t file_offset = 0;
         for (uint32_t j = 0; j < file_entries.objects[i].chunk_ids.length; j++) {
-            Chunk chunk;
-            find_object_s(&manifest->chunks, &chunk, chunk_id, file_entries.objects[i].chunk_ids.objects[j]);
-            add_object(&new_file.chunks, &chunk);
+            Chunk* chunk;
+            find_object_s(&manifest->chunks, chunk, chunk_id, file_entries.objects[i].chunk_ids.objects[j]);
+            chunk->file_offset = file_offset;
+            add_object(&new_file.chunks, chunk);
+            file_offset += chunk->uncompressed_size;
         }
         add_object(&manifest->files, &new_file);
 
-        // printf("final file name: \"%s\"\n", new_file.name);
+        dprintf("final file name: \"%s\"\n", new_file.name);
     }
 
     for (uint32_t i = 0; i < file_entries.length; i++) {
@@ -187,10 +254,9 @@ int parse_body(Manifest* manifest, uint8_t* body)
     for (uint32_t i = 0; i < manifest->bundles.length; i++) {
         chunks_amount += manifest->bundles.objects[i].chunks.length;
     }
-    printf("amount of chunks in this manifest: %d\n", chunks_amount);
+    dprintf("amount of chunks in this manifest: %d\n", chunks_amount);
 
-    // exit(EXIT_SUCCESS);
-    return -1;
+    return 0;
 }
 
 Manifest* parse_manifest(char* filepath)
@@ -219,7 +285,7 @@ Manifest* parse_manifest(char* filepath)
         return NULL;
     }
 
-    Manifest* manifest = calloc(1, sizeof(Manifest));
+    Manifest* manifest = malloc(sizeof(Manifest));
     uint32_t contentOffset = *(uint32_t*) (raw_manifest + 8);
     uint32_t compressedSize = *(uint32_t*) (raw_manifest + 12);
     manifest->manifest_id = *(uint64_t*) (raw_manifest + 16);
