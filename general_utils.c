@@ -12,6 +12,8 @@
 #include <ctype.h>
 #include <errno.h>
 
+#include "general_utils.h"
+
 
 char* lower_inplace(char* string)
 {
@@ -65,11 +67,7 @@ void bytes2hex(const void* input, char* output, int input_length)
 
 int create_dir(char* path)
 {
-    #ifdef _WIN32
-        int ret = mkdir(path);
-    #else
-        int ret = mkdir(path, 0700);
-    #endif
+    int ret = mkdir(path, 0700);
     if (ret == -1 && errno != EEXIST)
         return -1;
     return 0;

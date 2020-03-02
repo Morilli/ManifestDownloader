@@ -74,6 +74,9 @@ struct manifest {
 };
 
 typedef struct manifest Manifest;
+
+void free_manifest(Manifest* manifest);
+
 Manifest* parse_manifest(char* filepath);
 
 int extract_file(File* file, char* output_path, bool overwrite);

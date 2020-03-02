@@ -28,12 +28,6 @@ struct file_thread {
     char* bundle_base;
     int offset_parity;
 };
-struct um {
-    Manifest* manifest;
-    char* output_path;
-    char* bundle_base;
-    int offset_parity;
-};
 
 void* download_file(void* _args)
 {
@@ -41,7 +35,7 @@ void* download_file(void* _args)
     char* host = get_host(args->bundle_base, NULL);
     int socket = open_connection_s(host, "80");
     free(host);
-    
+
     char* current_bundle_url = malloc(strlen(args->bundle_base) + 25);
     for (uint32_t i = args->offset_parity; i < args->to_download->length; i += amount_of_threads) {
         File to_download = args->to_download->objects[i];
@@ -98,21 +92,6 @@ void* download_file(void* _args)
             free(unique_bundles.objects[i].chunks.objects);
         }
         free(unique_bundles.objects);
-        // for (uint32_t i = 0; i < to_download.chunks.length; i++) {
-        //     sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", args->bundle_base, to_download.chunks.objects[i].bundle->bundle_id);
-        //     printf("current bundle url: \"%s\"\n", current_bundle_url);
-        //     printf("requesting chunk with length %d\n", to_download.chunks.objects[i].compressed_size);
-        //     uint8_t* data = download_range(&socket, current_bundle_url, to_download.chunks.objects[i].bundle_offset, to_download.chunks.objects[i].compressed_size, 10);
-        //     // fseek(output_file, to_download.chunks.objects[i].file_offset, SEEK_SET);
-        //     uint8_t* uncompressed_data = malloc(to_download.chunks.objects[i].uncompressed_size);
-        //     // printf("expected compressed size: %d\n", to_download.chunks.objects[i].compressed_size);
-        //     // printf("expected uncompressed size: %d\n", to_download.chunks.objects[i].uncompressed_size);
-        //     // printf("chunk id: %016lX\n\n", to_download.chunks.objects[i].chunk_id);
-        //     assert(ZSTD_decompress(uncompressed_data, to_download.chunks.objects[i].uncompressed_size, data, to_download.chunks.objects[i].compressed_size) == to_download.chunks.objects[i].uncompressed_size);
-        //     free(data);
-        //     fwrite(uncompressed_data, to_download.chunks.objects[i].uncompressed_size, 1, output_file);
-        //     free(uncompressed_data);
-        // }
         fclose(output_file);
         free(file_output_path);
     }
@@ -120,27 +99,6 @@ void* download_file(void* _args)
     close(socket);
 
     return _args;
-}
-
-void* download_bundle(void* args)
-{
-    Manifest* passed_one = ((struct um*) args)->manifest;
-    char* output_path = ((struct um*) args)->output_path;
-    char* bundle_base = ((struct um*) args)->bundle_base;
-    int offset_parity = ((struct um*) args)->offset_parity;
-
-    char* current_bundle_url = malloc(strlen(bundle_base) + 25);
-    char* bundleOutputPath = malloc(strlen(output_path) + 25);
-    for (uint32_t i = offset_parity; i < passed_one->bundles.length; i += amount_of_threads) {
-        sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", bundle_base, passed_one->bundles.objects[i].bundle_id);
-        sprintf(bundleOutputPath, "%s/%016"PRIX64".bundle", output_path, passed_one->bundles.objects[i].bundle_id);
-        if (access(bundleOutputPath, F_OK))
-            download_url(current_bundle_url, bundleOutputPath);
-    }
-    free(current_bundle_url);
-    free(bundleOutputPath);
-
-    return args;
 }
 
 
@@ -183,9 +141,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // pthread
-    // pipe()
-
     printf("output path: %s\n", outputPath);
     printf("amount of threads: %d\n", amount_of_threads);
     printf("base bundle download path: %s\n", bundleBase);
@@ -203,20 +158,9 @@ int main(int argc, char* argv[])
 
     Manifest* parsed_manifest = parse_manifest(manifestOutputPath);
 
-    // extract_file(&parsed_manifest->files.objects[0], outputPath);
-    // return 0;
-
     pthread_t tid[amount_of_threads];
-    // for (uint8_t i = 0; i < amount_of_threads; i++) {
-    //     struct um* ums = malloc(sizeof(struct um));
-    //     ums->manifest = parsed_manifest;
-    //     ums->output_path = outputPath;
-    //     ums->bundle_base = bundleBase;
-    //     ums->offset_parity = i;
-    //     pthread_create(&tid[i], NULL, download_bundle, (void*) ums);
-    // }
     for (uint8_t i = 0; i < amount_of_threads; i++) {
-        struct file_thread* file_thread = malloc(sizeof(struct um));
+        struct file_thread* file_thread = malloc(sizeof(struct file_thread));
         file_thread->to_download = &parsed_manifest->files;
         file_thread->output_path = outputPath;
         file_thread->bundle_base = bundleBase;
@@ -229,16 +173,5 @@ int main(int argc, char* argv[])
         free(to_free);
     }
 
-    for (uint32_t i = 0; i < parsed_manifest->files.length; i++) {
-        extract_file(&parsed_manifest->files.objects[i], outputPath, false);
-    }
-    // char current_bundle_url[strlen(bundleBase) + 25];
-    // sprintf(current_bundle_url, "%s/0123456789ABCDEF.bundle", bundleBase);
-    // for (uint32_t i = 0; i < parsed_manifest->bundles.length; i++) {
-    //     sprintf(&current_bundle_url[strlen(bundleBase) + 1], "%016"PRIX64".bundle", parsed_manifest->bundles.objects[i].bundle_id);
-    //     char bundleOutputPath[strlen(outputPath) + 25];
-    //     sprintf(bundleOutputPath, "%s/%016"PRIX64".bundle", outputPath, parsed_manifest->bundles.objects[i].bundle_id);
-    //     download_file(current_bundle_url, bundleOutputPath);
-    // }
-
+    free_manifest(parsed_manifest);
 }

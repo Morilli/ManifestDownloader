@@ -8,8 +8,9 @@ extern "C" {
 #include <inttypes.h>
 #include <stdbool.h>
 
-#ifdef _WIN64
+#ifdef _WIN32
     #define stat _stat64
+    #define mkdir(path, mode) mkdir(path)
 #endif
 
 char* lower(const char* string);
@@ -158,7 +159,7 @@ typedef struct {
     } \
     if (parity % 2 == 0) { \
         free((list)->objects); \
-        *(list) = *temp; \
+        (list)->objects = temp->objects; \
         free(temp); \
     } else { \
         free(temp->objects); \

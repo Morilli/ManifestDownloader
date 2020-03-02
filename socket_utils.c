@@ -26,7 +26,7 @@ int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port)
     struct addrinfo* addrinfos;
     if (getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM, .ai_flags = AI_CANONNAME}, &addrinfos) != 0) {
         eprintf("Error: getaddrinfo failed.\n");
-        printf("error code: %d\n", getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_INET6, .ai_socktype = SOCK_STREAM}, &addrinfos));   
+        printf("error code: %d\n", getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM}, &addrinfos));
         exit(EXIT_FAILURE);
     }
 
@@ -34,10 +34,6 @@ int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port)
     int socket_fd;
     for (_addrinfo = addrinfos; _addrinfo != NULL; _addrinfo = _addrinfo->ai_next)
     {
-        // if (_addrinfo->ai_canonname && strstr(_addrinfo->ai_canonname, "cloudflare")) {
-            // printf("skipping this server (%s), as it's cloudflare.\n", _addrinfo->ai_canonname);
-            // continue;
-        // }
         printf("canon name of what i'm about to connect to: \"%s\"\n", _addrinfo->ai_canonname);
         //Create socket
         if ((socket_fd = socket(_addrinfo->ai_family, _addrinfo->ai_socktype, _addrinfo->ai_protocol)) == -1)
@@ -163,9 +159,11 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
     BinaryData* body = malloc(sizeof(BinaryData));
     if (content_length_position) {
         body->length = strtol(content_length_position + 16, NULL, 10);
+        printf("content length: %"PRIu64"\n", body->length);
         body->data = malloc(body->length);
         memcpy(body->data, start_of_body, already_received);
         free(header_buffer);
+        dprintf("already received %d, will try to receive the rest %"PRIu64"\n", already_received, body->length - already_received);
         receive_data(*socket, (char*) &body->data[already_received], body->length - already_received);
     } else {
         assert(refresh);
@@ -174,7 +172,7 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
         body->data = malloc(buffer_size);
         memcpy(body->data, start_of_body, already_received);
         free(header_buffer);
-        while ( (received = recv(*socket, &body->data[body->length], buffer_size - body->length, 0)) != 0) {
+        while ( (received = recv(*socket, (char*) &body->data[body->length], buffer_size - body->length, 0)) != 0) {
             body->length += received;
             // printf("received: %d, total received: %d\n", received, total_received);
             if (body->length == buffer_size) {
@@ -190,9 +188,6 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
     return body;
 }
 
-// backup method if download_ranges() fails with a 416 because of fucking rito servers
-// TODO, will probably be a full bundle download method
-
 uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
 {
     int host_end;
@@ -203,10 +198,13 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
     add_object(&range_indices, &(uint32_t) {0});
     uint32_t last_chunk = 0;
     uint32_t last_range = 0;
+    for (uint32_t i = 0; i < chunks->length; i++) {
+        printf("range[%d]: %u-%u\n", i, chunks->objects[i].bundle_offset, chunks->objects[i].bundle_offset + chunks->objects[i].compressed_size);
+    }
     sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + host_end, host);
     char range[17];
     for (uint32_t i = 1; i < chunks->length; i++) {
-        if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size == chunks->objects[i].bundle_offset) {
+        if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size == chunks->objects[i].bundle_offset || chunks->objects[i-1].bundle_offset == chunks->objects[i].bundle_offset ) {
             add_object(&range_indices, &(uint32_t) {last_range});
         } else {
             sprintf(range, "%u-%u,", chunks->objects[last_chunk].bundle_offset, chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size - 1);
@@ -216,7 +214,7 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
             add_object(&range_indices, &(uint32_t) {last_range});
         }
     }
-    sprintf(range, "%u-%u,\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
+    sprintf(range, "%u-%u\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
     strcat(request_header, range);
     assert(strlen(request_header) < 8192);
     printf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
@@ -233,12 +231,11 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
         for (uint32_t i = 0; i < chunks->length; i++) {
             if (i != 0 && range_indices.objects[i] > range_indices.objects[i-1])
                 pos = strstr(pos, "\r\n\r\n") + 4;
-            // printf("pos: %p\n", pos);
             ranges[i] = malloc(chunks->objects[i].compressed_size);
             memcpy(ranges[i], pos, chunks->objects[i].compressed_size);
-            pos += chunks->objects[i].compressed_size;
+            if (i != chunks->length-1 && chunks->objects[i+1].bundle_offset > chunks->objects[i].bundle_offset)
+                pos += chunks->objects[i].compressed_size;
         }
-        // fwrite(buffer, total_received, 1, stdout);
         free(body->data);
         free(body);
     }
@@ -279,7 +276,6 @@ int download_url(char* url, char* path)
     fwrite(response, content_length, 1, output);
     fclose(output);
     free(response);
-    
+
     return 0;
 }
-

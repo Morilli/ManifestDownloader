@@ -12,53 +12,31 @@
 
 #include <zstd.h>
 
-uint8_t* load_chunk(Chunk* chunk, char* bundle_path)
+void free_manifest(Manifest* manifest)
 {
-    char path[256];
-    assert(sprintf(path, "%s/%016"PRIX64".bundle", bundle_path, chunk->bundle->bundle_id) < 256);
-    dprintf("loading chunk from bundle %s\n", path);
-    FILE* bundle = fopen(path, "rb");
-    if (!bundle) {
-        eprintf("Error: Failed to open bundle at \"%s\".\n", path);
-        exit(EXIT_FAILURE);
-    }
+    free(manifest->chunks.objects);
 
-    uint8_t* buffer = malloc(chunk->compressed_size);
-    fseek(bundle, chunk->bundle_offset, SEEK_CUR);
-    assert(fread(buffer, 1, chunk->compressed_size, bundle) == chunk->compressed_size);
-    fclose(bundle);
-    uint8_t* chunk_data = malloc(chunk->uncompressed_size);
-    ZSTD_decompress(chunk_data, chunk->uncompressed_size, buffer, chunk->compressed_size);
-    free(buffer);
-    return chunk_data;
+    for (uint32_t i = 0; i < manifest->bundles.length; i++) {
+        free(manifest->bundles.objects[i].chunks.objects[0].bundle);
+        free(manifest->bundles.objects[i].chunks.objects);
+    }
+    free(manifest->bundles.objects);
+
+    for (uint32_t i = 0; i < manifest->files.length; i++) {
+        free(manifest->files.objects[i].link);
+        free(manifest->files.objects[i].name);
+        free(manifest->files.objects[i].language_ids.objects);
+        free(manifest->files.objects[i].chunks.objects);
+    }
+    free(manifest->files.objects);
+
+    for (uint32_t i = 0; i < manifest->languages.length; i++) {
+        free(manifest->languages.objects[i].name);
+    }
+    free(manifest->languages.objects);
+
+    free(manifest);
 }
-
-int extract_file(File* file, char* output_path, bool overwrite)
-{
-    char path[256];
-    assert(sprintf(path, "%s/%s", output_path, file->name) < 256);
-    printf("output path: %s\n", path);
-    create_dirs(path, false, false);
-    if (!overwrite && access(path, F_OK) == 0)
-        return 0;
-    FILE* output_file = fopen(path, "wb");
-    if (!output_file) {
-        eprintf("Error: Failed to open output file (%s).", path);
-        exit(EXIT_FAILURE);
-    }
-
-    for (uint32_t i = 0; i < file->chunks.length; i++) {
-        uint8_t* chunk_data = load_chunk(&file->chunks.objects[i], output_path);
-        fwrite(chunk_data, 1, file->chunks.objects[i].uncompressed_size, output_file);
-        free(chunk_data);
-        // rename()
-    }
-    fclose(output_file);
-
-    return 0;
-}
-
-
 
 char* unpack_string(uint8_t* string_position)
 {
@@ -144,7 +122,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
     dprintf("started sorting...\n");
     sort_list(&manifest->chunks, chunk_id);
     // for (uint32_t i = 0; i < manifest->chunks.length; i++) {
-    //     printf("chunk_id: %016"PRIX64"\n", manifest->chunks.objects[i].chunk_id);
+        // printf("chunk_id: %016"PRIX64"\n", manifest->chunks.objects[i].chunk_id);
     // }
     // exit(EXIT_FAILURE);
     dprintf("finished sorting\n");
@@ -240,7 +218,6 @@ int parse_body(Manifest* manifest, uint8_t* body)
 
     for (uint32_t i = 0; i < file_entries.length; i++) {
         free(file_entries.objects[i].name);
-        free(file_entries.objects[i].link);
         free(file_entries.objects[i].chunk_ids.objects);
     }
     free(file_entries.objects);
