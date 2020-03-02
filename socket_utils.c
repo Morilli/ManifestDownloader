@@ -193,43 +193,27 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
 // backup method if download_ranges() fails with a 416 because of fucking rito servers
 // TODO, will probably be a full bundle download method
 
-struct chunk_to_range {
-    Chunk* chunk;
-    uint32_t range_index;
-    uint32_t chunk_index;
-};
-
 uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
 {
     int host_end;
     char* host = get_host(url, &host_end);
     char request_header[8192];
-    LIST(struct chunk_to_range) chunks_to_ranges;
-    initialize_list(&chunks_to_ranges);
-    add_object(&chunks_to_ranges, (&(struct chunk_to_range) {.chunk = &chunks->objects[0], .range_index = 0, .chunk_index = 0}));
+    uint32_list range_indices;
+    initialize_list(&range_indices);
+    add_object(&range_indices, &(uint32_t) {0});
     uint32_t last_chunk = 0;
     uint32_t last_range = 0;
     sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + host_end, host);
     char range[17];
     for (uint32_t i = 1; i < chunks->length; i++) {
         if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size == chunks->objects[i].bundle_offset) {
-            struct chunk_to_range new_entry = {
-                .chunk = &chunks->objects[i],
-                .range_index = last_range,
-                .chunk_index = last_chunk
-            };
-            add_object(&chunks_to_ranges, &new_entry);
+            add_object(&range_indices, &(uint32_t) {last_range});
         } else {
             sprintf(range, "%u-%u,", chunks->objects[last_chunk].bundle_offset, chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size - 1);
             strcat(request_header, range);
             last_range++;
             last_chunk = i;
-            struct chunk_to_range new_entry = {
-                .chunk = &chunks->objects[i],
-                .range_index = last_range,
-                .chunk_index = last_chunk
-            };
-            add_object(&chunks_to_ranges, &new_entry);
+            add_object(&range_indices, &(uint32_t) {last_range});
         }
     }
     sprintf(range, "%u-%u,\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
@@ -244,10 +228,10 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
         free(body);
     } else {
         char* pos = (char*) body->data;
-        if (chunks_to_ranges.objects[chunks_to_ranges.length-1].range_index != 0)
+        if (range_indices.objects[range_indices.length-1] != 0)
             pos = strstr(pos, "\r\n\r\n") + 4;
         for (uint32_t i = 0; i < chunks->length; i++) {
-            if (i != 0 && chunks_to_ranges.objects[i].range_index > chunks_to_ranges.objects[i-1].range_index)
+            if (i != 0 && range_indices.objects[i] > range_indices.objects[i-1])
                 pos = strstr(pos, "\r\n\r\n") + 4;
             // printf("pos: %p\n", pos);
             ranges[i] = malloc(chunks->objects[i].compressed_size);
@@ -258,6 +242,7 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
         free(body->data);
         free(body);
     }
+    free(range_indices.objects);
     free(host);
 
     return ranges;
