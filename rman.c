@@ -25,7 +25,7 @@ void free_manifest(Manifest* manifest)
     for (uint32_t i = 0; i < manifest->files.length; i++) {
         free(manifest->files.objects[i].link);
         free(manifest->files.objects[i].name);
-        free(manifest->files.objects[i].language_ids.objects);
+        free(manifest->files.objects[i].languages.objects);
         free(manifest->files.objects[i].chunks.objects);
     }
     free(manifest->files.objects);
@@ -111,7 +111,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
         // }
         // printf("\n");
         Language new_language = {.language_id = body[language_offset + 3], .name = jump_unpack_string(body + language_offset + 4)};
-        add_object(&manifest->languages, &new_language);
+        add_object_s(&manifest->languages, &new_language, language_id);
 
         offset += 4;
     }
@@ -146,11 +146,12 @@ int parse_body(Manifest* manifest, uint8_t* body)
         initialize_list(&new_file_entry.chunk_ids);
         uint8_t* chunks_position = body + file_entry_offset + file_entry_vtable->offsets[7] + *(uint32_t*) (body + file_entry_offset + file_entry_vtable->offsets[7]);
         add_objects(&new_file_entry.chunk_ids, chunks_position + 4, *(uint32_t*) chunks_position);
-        uint64_t language_mask = *(uint64_t*) (body + file_entry_offset + file_entry_vtable->offsets[4]);
+        uint64_t language_mask = file_entry_vtable->offsets[4] ? *(uint64_t*) (body + file_entry_offset + file_entry_vtable->offsets[4]) : 0;
         initialize_list(&new_file_entry.language_ids);
         for (int i = 0; i < 64; i++) {
-            if (language_mask & (1 << i))
+            if (language_mask & (1ull << i)) {
                 add_object(&new_file_entry.language_ids, &(uint8_t) {i+1});
+            }
         }
         add_object(&file_entries, &new_file_entry);
 
@@ -182,9 +183,14 @@ int parse_body(Manifest* manifest, uint8_t* body)
     for (uint32_t i = 0; i < file_entries.length; i++) {
         File new_file = {
             .file_size = file_entries.objects[i].file_size,
-            .link = file_entries.objects[i].link,
-            .language_ids = file_entries.objects[i].language_ids
+            .link = file_entries.objects[i].link
         };
+        initialize_list(&new_file.languages);
+        for (uint32_t j = 0; j < file_entries.objects[i].language_ids.length; j++) {
+            Language* language;
+            find_object_s(&manifest->languages, language, language_id, file_entries.objects[i].language_ids.objects[j]);
+            add_object(&new_file.languages, language);
+        }
         uint64_t directory_id = file_entries.objects[i].directory_id;
         char temp_name[256];
         strcpy(temp_name, file_entries.objects[i].name);
@@ -219,6 +225,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
     for (uint32_t i = 0; i < file_entries.length; i++) {
         free(file_entries.objects[i].name);
         free(file_entries.objects[i].chunk_ids.objects);
+        free(file_entries.objects[i].language_ids.objects);
     }
     free(file_entries.objects);
     for (uint32_t i = 0; i < directories.length; i++) {
@@ -236,7 +243,36 @@ int parse_body(Manifest* manifest, uint8_t* body)
     return 0;
 }
 
-Manifest* parse_manifest(char* filepath)
+Manifest* parse_manifest_data(uint8_t* data)
+{
+    if (strncmp((char*) data, "RMAN", 4)) {
+        eprintf("Not a valid RMAN file! Missing magic bytes.\n");
+        return NULL;
+    }
+
+    if (data[4] == 2 && data[5] != 0) {
+        vprintf(1, "Info: Untested manifest version %d.%d detected. Everything should still work though.\n", data[4], data[5]);
+    } else if (data[4] != 2) {
+        eprintf("Warning: Probably unsupported manifest version %d.%d detected. Will continue, but it might not work.\n", data[4], data[5]);
+    }
+
+    Manifest* manifest = malloc(sizeof(Manifest));
+    uint32_t contentOffset = *(uint32_t*) (data + 8);
+    uint32_t compressedSize = *(uint32_t*) (data + 12);
+    manifest->manifest_id = *(uint64_t*) (data + 16);
+    uint32_t uncompressedSize = *(uint32_t*) (data + 24);
+
+    uint8_t* uncompressed_body = malloc(uncompressedSize);
+    assert(ZSTD_decompress(uncompressed_body, uncompressedSize, data + contentOffset, compressedSize) == uncompressedSize);
+    // free(data);
+
+    parse_body(manifest, uncompressed_body);
+    free(uncompressed_body);
+
+    return manifest;
+}
+
+Manifest* parse_manifest_f(char* filepath)
 {
     FILE* manifest_file = fopen(filepath, "rb");
     if (!manifest_file) {
@@ -247,34 +283,9 @@ Manifest* parse_manifest(char* filepath)
     fseek(manifest_file, 0, SEEK_END);
     int file_size = ftell(manifest_file);
     rewind(manifest_file);
-
     uint8_t* raw_manifest = malloc(file_size);
     assert(fread(raw_manifest, 1, file_size, manifest_file) == (size_t) file_size);
     fclose(manifest_file);
 
-    if (strncmp((char*) raw_manifest, "RMAN", 4)) {
-        eprintf("Not a valid RMAN file! Missing magic bytes.\n");
-        return NULL;
-    }
-
-    if (*(uint16_t*) (raw_manifest + 4) != 2) {
-        eprintf("Unsupposed RMAN version: %d.%d\n", raw_manifest[4], raw_manifest[5]);
-        return NULL;
-    }
-
-    Manifest* manifest = malloc(sizeof(Manifest));
-    uint32_t contentOffset = *(uint32_t*) (raw_manifest + 8);
-    uint32_t compressedSize = *(uint32_t*) (raw_manifest + 12);
-    manifest->manifest_id = *(uint64_t*) (raw_manifest + 16);
-    uint32_t uncompressedSize = *(uint32_t*) (raw_manifest + 24);
-    // printf("content offset: %d, compressed size: %d, uncompressed size: %d, manifest id: %llX\n", contentOffset, compressedSize, uncompressedSize, manifest->manifest_id);
-
-    uint8_t* uncompressed_body = malloc(uncompressedSize);
-    assert(ZSTD_decompress(uncompressed_body, uncompressedSize, raw_manifest + contentOffset, compressedSize) == uncompressedSize);
-    free(raw_manifest);
-
-    parse_body(manifest, uncompressed_body);
-    free(uncompressed_body);
-
-    return manifest;
+    return parse_manifest_data(raw_manifest);
 }

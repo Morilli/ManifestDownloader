@@ -55,7 +55,7 @@ typedef struct directory {
 typedef struct file {
     char* name;
     char* link;
-    uint8_list language_ids;
+    LanguageList languages;
     uint32_t file_size;
     ChunkList chunks;
 } File;
@@ -68,7 +68,7 @@ struct manifest {
     uint64_t manifest_id;
     ChunkList chunks;
     BundleList bundles;
-    uint8_t language_ids[64];
+    // uint8_t language_ids[64];
     LanguageList languages;
     FileList files;
 };
@@ -77,7 +77,15 @@ typedef struct manifest Manifest;
 
 void free_manifest(Manifest* manifest);
 
-Manifest* parse_manifest(char* filepath);
+Manifest* parse_manifest_data(uint8_t* data);
+Manifest* parse_manifest_f(char* filepath);
+
+#define parse_manifest(X) _Generic((X), \
+    char*: parse_manifest_f, \
+    uint8_t*: parse_manifest_data \
+)(X)
+
+// Manifest* parse_manifest(char* filepath);
 
 int extract_file(File* file, char* output_path, bool overwrite);
 

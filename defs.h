@@ -5,7 +5,6 @@
 
 #include "general_utils.h"
 
-#define DEBUG 1
 int VERBOSE;
 
 typedef LIST(uint8_t) uint8_list;

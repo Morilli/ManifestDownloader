@@ -27,10 +27,11 @@ char* lower_inplace(char* string)
 char* lower(const char* string)
 {
     size_t string_length = strlen(string);
-    char* lower_string = malloc(string_length);
-    for (size_t i = 0; i < strlen(string); i++) {
+    char* lower_string = malloc(string_length + 1);
+    for (size_t i = 0; i < string_length; i++) {
         lower_string[i] = tolower(string[i]);
     }
+    lower_string[string_length] = '\0';
 
     return lower_string;
 }
@@ -73,17 +74,12 @@ int create_dir(char* path)
     return 0;
 }
 
-int create_dirs(char* dir_path, bool create_first, bool create_last)
+int create_dirs(char* dir_path, bool create_last)
 {
     char* c = dir_path;
-    bool skip_once = !create_first;
     while (*c != 0) {
         c++;
         if (*c == '/' || *c == '\\') {
-            if (skip_once) {
-                skip_once = false;
-                continue;
-            }
             char _c = *c;
             *c = '\0';
             if (create_dir(dir_path) == -1)

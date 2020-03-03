@@ -23,9 +23,13 @@ void bytes2hex(const void* input, char* output, int input_length);
 
 int create_dir(char* path);
 
-int create_dirs(char* dir_path, bool create_first, bool create_last);
+int create_dirs(char* dir_path, bool create_last);
 
-#define dprintf(...) if (DEBUG) printf(__VA_ARGS__)
+#ifdef DEBUG
+    #define dprintf(...) printf(__VA_ARGS__)
+#else
+    #define dprintf(...)
+#endif
 #define eprintf(...) fprintf(stderr, __VA_ARGS__)
 #define vprintf(level, ...) if (VERBOSE >= level) printf(__VA_ARGS__)
 

@@ -24,9 +24,9 @@
 int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port)
 {
     struct addrinfo* addrinfos;
-    if (getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM, .ai_flags = AI_CANONNAME}, &addrinfos) != 0) {
+    if (getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM}, &addrinfos) != 0) {
         eprintf("Error: getaddrinfo failed.\n");
-        printf("error code: %d\n", getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM}, &addrinfos));
+        eprintf("error code: %d\n", getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM}, &addrinfos));
         exit(EXIT_FAILURE);
     }
 
@@ -34,7 +34,6 @@ int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port)
     int socket_fd;
     for (_addrinfo = addrinfos; _addrinfo != NULL; _addrinfo = _addrinfo->ai_next)
     {
-        printf("canon name of what i'm about to connect to: \"%s\"\n", _addrinfo->ai_canonname);
         //Create socket
         if ((socket_fd = socket(_addrinfo->ai_family, _addrinfo->ai_socktype, _addrinfo->ai_protocol)) == -1)
         {
@@ -147,10 +146,10 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
     }
     if (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0) {
         eprintf("Got too many 404s. Can't continue.\n");
-        exit(EXIT_FAILURE);
+        return NULL;
     } else if (strncmp(header_buffer, "HTTP/1.1 416", 12) == 0) {
         eprintf("Error: Got a 416 response.\n");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
     char* start_of_body = strstr(header_buffer, "\r\n\r\n") + 4;
     char* content_length_position = strstr(header_buffer, "Content-Length:");
@@ -159,7 +158,6 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
     BinaryData* body = malloc(sizeof(BinaryData));
     if (content_length_position) {
         body->length = strtol(content_length_position + 16, NULL, 10);
-        printf("content length: %"PRIu64"\n", body->length);
         body->data = malloc(body->length);
         memcpy(body->data, start_of_body, already_received);
         free(header_buffer);
@@ -198,9 +196,6 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
     add_object(&range_indices, &(uint32_t) {0});
     uint32_t last_chunk = 0;
     uint32_t last_range = 0;
-    for (uint32_t i = 0; i < chunks->length; i++) {
-        printf("range[%d]: %u-%u\n", i, chunks->objects[i].bundle_offset, chunks->objects[i].bundle_offset + chunks->objects[i].compressed_size);
-    }
     sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + host_end, host);
     char range[17];
     for (uint32_t i = 1; i < chunks->length; i++) {
@@ -217,8 +212,8 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
     sprintf(range, "%u-%u\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
     strcat(request_header, range);
     assert(strlen(request_header) < 8192);
-    printf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
-    printf("request header:\n\"%s\"\n", request_header);
+    dprintf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
+    dprintf("request header:\n\"%s\"\n", request_header);
     BinaryData* body = receive_http_body(socket, request_header, host);
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));
     if (chunks->length == 1) {
@@ -245,7 +240,7 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
     return ranges;
 }
 
-int download_url(char* url, char* path)
+BinaryData* download_url(char* url)
 {
     int host_end;
     dprintf("file to download: \"%s\"\n", url);
@@ -253,29 +248,9 @@ int download_url(char* url, char* path)
     int socket = open_connection_s(host, "80");
     char request_header[1024];
     assert(sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", url + host_end, host) < 1024);
+    BinaryData* data = receive_http_body(&socket, request_header, host);
     free(host);
-    send_data(socket, request_header, strlen(request_header));
-    char* buffer = calloc(8192, 1);
-    int received = recv(socket, buffer, 8192, 0);
-    // printf("received header:\n\"%s\"\n", buffer);
-    char* pos = strstr(buffer, "Content-Length:") + 16;
-    long content_length = strtol(pos, NULL, 10);
-    // printf("content length? %ld\n\n", content_length);
-    pos = strstr(pos, "\r\n\r\n") + 4;
-    char* response = malloc(content_length);
-    int already_received = received - (pos - buffer);
-    memcpy(response, pos, already_received);
-    free(buffer);
-    receive_data(socket, &response[already_received], content_length - already_received);
     close(socket);
-    FILE* output = fopen(path, "wb");
-    if (!output) {
-        fprintf(stderr, "Error: Couldn't open output file \"%s\".\n", path);
-        exit(EXIT_FAILURE);
-    }
-    fwrite(response, content_length, 1, output);
-    fclose(output);
-    free(response);
 
-    return 0;
+    return data;
 }

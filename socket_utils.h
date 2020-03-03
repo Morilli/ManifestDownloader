@@ -3,6 +3,7 @@
 
 #include <inttypes.h>
 #include "rman.h"
+#include "general_utils.h"
 
 int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port);
 int __attribute__((warn_unused_result)) open_connection(uint32_t ip, uint16_t port);
@@ -15,7 +16,7 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks);
 
 char* get_host(char* url, int* host_end);
 
-int download_url(char* url, char* path);
+BinaryData* download_url(char* url);
 
 int send_data(int socket, char* data, size_t length);
 
