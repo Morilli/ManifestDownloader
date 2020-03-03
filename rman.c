@@ -187,7 +187,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
         };
         initialize_list(&new_file.languages);
         for (uint32_t j = 0; j < file_entries.objects[i].language_ids.length; j++) {
-            Language* language;
+            Language* language = NULL;
             find_object_s(&manifest->languages, language, language_id, file_entries.objects[i].language_ids.objects[j]);
             add_object(&new_file.languages, language);
         }
@@ -211,7 +211,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
         initialize_list(&new_file.chunks);
         uint32_t file_offset = 0;
         for (uint32_t j = 0; j < file_entries.objects[i].chunk_ids.length; j++) {
-            Chunk* chunk;
+            Chunk* chunk = NULL;
             find_object_s(&manifest->chunks, chunk, chunk_id, file_entries.objects[i].chunk_ids.objects[j]);
             chunk->file_offset = file_offset;
             add_object(&new_file.chunks, chunk);

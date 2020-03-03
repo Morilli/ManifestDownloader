@@ -154,7 +154,6 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
     char* start_of_body = strstr(header_buffer, "\r\n\r\n") + 4;
     char* content_length_position = strstr(header_buffer, "Content-Length:");
     int already_received = received - (start_of_body - header_buffer);
-    // printf("already received here %d\n", total_received);
     BinaryData* body = malloc(sizeof(BinaryData));
     if (content_length_position) {
         body->length = strtol(content_length_position + 16, NULL, 10);
@@ -172,7 +171,6 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
         free(header_buffer);
         while ( (received = recv(*socket, (char*) &body->data[body->length], buffer_size - body->length, 0)) != 0) {
             body->length += received;
-            // printf("received: %d, total received: %d\n", received, total_received);
             if (body->length == buffer_size) {
                 buffer_size += buffer_size >> 1;
                 body->data = realloc(body->data, buffer_size);
@@ -197,7 +195,7 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
     uint32_t last_chunk = 0;
     uint32_t last_range = 0;
     sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + host_end, host);
-    char range[17];
+    char range[26];
     for (uint32_t i = 1; i < chunks->length; i++) {
         if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size == chunks->objects[i].bundle_offset || chunks->objects[i-1].bundle_offset == chunks->objects[i].bundle_offset ) {
             add_object(&range_indices, &(uint32_t) {last_range});

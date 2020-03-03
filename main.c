@@ -47,10 +47,10 @@ void* download_file(void* _args)
         stat(file_output_path, &file_info);
         if (access(file_output_path, F_OK) == 0 && file_info.st_size == to_download.file_size) {
             free(file_output_path);
-            vprintf(2, "Skipping file %s\n", to_download.name);
+            printf("Skipping file %s\n", to_download.name);
             continue;
         }
-        vprintf(2, "Downloading file %s\n", to_download.name);
+        printf("Downloading file %s...\n", to_download.name);
         create_dirs(file_output_path, false);
         FILE* output_file = fopen(file_output_path, "wb");
         vprintf(2, "Downloading to %s\n", file_output_path);
@@ -196,9 +196,7 @@ int main(int argc, char* argv[])
             continue;
         bool matches = false;
         char* name_lower = lower(parsed_manifest->files.objects[i].name);
-        if (strstr(name_lower, filter))
-            matches = true;
-        else {
+        if (strstr(name_lower, filter)) {
             for (uint32_t j = 0; j < parsed_manifest->files.objects[i].languages.length; j++) {
                 for (uint32_t k = 0; langs[k]; k++) {
                     if (strcasecmp(parsed_manifest->files.objects[i].languages.objects[j].name, langs[k]) == 0)
@@ -228,6 +226,7 @@ int main(int argc, char* argv[])
         pthread_join(tid[i], &to_free);
         free(to_free);
     }
+    free(to_download.objects);
 
     free_manifest(parsed_manifest);
 }
