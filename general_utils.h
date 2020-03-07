@@ -9,7 +9,6 @@ extern "C" {
 #include <stdbool.h>
 
 #ifdef _WIN32
-    #define stat _stat64
     #define mkdir(path, mode) mkdir(path)
 #endif
 

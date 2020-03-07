@@ -74,10 +74,6 @@ int parse_body(Manifest* manifest, uint8_t* body)
         Bundle* new_bundle = malloc(sizeof(Bundle));
         new_bundle->bundle_id = *(uint64_t*) (body + bundle_offset + 4);
         bundle_offset += header_length;
-        // for (int i = 0; i < 64; i++) {
-        //     printf("%02X ", body[bundle_offset + i]);
-        // }
-        // printf("\n");
 
         initialize_list(&new_bundle->chunks);
         uint32_t chunk_amount = *(uint32_t*) (body + bundle_offset);
@@ -99,6 +95,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
         add_object(&manifest->bundles, new_bundle);
         offset += 4;
     }
+    sort_list(&manifest->chunks, chunk_id);
 
     // languages
     initialize_list(&manifest->languages);
@@ -106,26 +103,11 @@ int parse_body(Manifest* manifest, uint8_t* body)
     offset = offsets[1] + 4;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t language_offset = offset + *(uint32_t*) (body + offset) + 4;
-        // for (int i = 0; i < 64; i++) {
-        //     printf("%02X ", body[language_offset + i]);
-        // }
-        // printf("\n");
         Language new_language = {.language_id = body[language_offset + 3], .name = jump_unpack_string(body + language_offset + 4)};
         add_object_s(&manifest->languages, &new_language, language_id);
 
         offset += 4;
     }
-    // for (int i = 0; i < manifest->languages.length; i++) {
-        // printf("language at %d: %s\n", i, manifest->languages.objects[i].name);
-    // }
-
-    dprintf("started sorting...\n");
-    sort_list(&manifest->chunks, chunk_id);
-    // for (uint32_t i = 0; i < manifest->chunks.length; i++) {
-        // printf("chunk_id: %016"PRIX64"\n", manifest->chunks.objects[i].chunk_id);
-    // }
-    // exit(EXIT_FAILURE);
-    dprintf("finished sorting\n");
 
     // file entries
     FileEntryList file_entries;
@@ -264,7 +246,6 @@ Manifest* parse_manifest_data(uint8_t* data)
 
     uint8_t* uncompressed_body = malloc(uncompressedSize);
     assert(ZSTD_decompress(uncompressed_body, uncompressedSize, data + contentOffset, compressedSize) == uncompressedSize);
-    // free(data);
 
     parse_body(manifest, uncompressed_body);
     free(uncompressed_body);
@@ -287,5 +268,7 @@ Manifest* parse_manifest_f(char* filepath)
     assert(fread(raw_manifest, 1, file_size, manifest_file) == (size_t) file_size);
     fclose(manifest_file);
 
-    return parse_manifest_data(raw_manifest);
+    Manifest* parsed_manifest = parse_manifest_data(raw_manifest);
+    free(raw_manifest);
+    return parsed_manifest;
 }

@@ -8,11 +8,11 @@
 int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port);
 int __attribute__((warn_unused_result)) open_connection(uint32_t ip, uint16_t port);
 
-#ifdef _WIN32
-    #define close(socket) closesocket(socket);
+#ifndef _WIN32
+    #define closesocket(socket) close(socket)
 #endif
 
-uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks);
+uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks, int thread_id);
 
 char* get_host(char* url, int* host_end);
 

@@ -58,7 +58,6 @@ int __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port)
     freeaddrinfo(addrinfos);
 
     return socket_fd;
-
 }
 int __attribute__((warn_unused_result)) open_connection(uint32_t ip, uint16_t port)
 {
@@ -118,27 +117,27 @@ char* get_host(char* url, int* host_end)
     return host;
 }
 
-BinaryData* receive_http_body(int* socket, char* request, char* host)
+BinaryData* receive_http_body(int* socket, char* request, char* host, int thread_id)
 {
     int retries = 10;
     send_data(*socket, request, strlen(request));
     char* header_buffer = calloc(8193, 1);
     int received = recv(*socket, header_buffer, 8192, 0);
-    dprintf("received header:\n\"%s\"\n", header_buffer);
+    dprintf("%d: received header:\n\"%s\"\n", thread_id, header_buffer);
     bool refresh = strstr(header_buffer, "Connection: close\r\n");
     while (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0 && retries --> 0) {
         dprintf("Got a 404. Will retry %d time%s.\n", retries + 1, retries > 0 ? "s" : "");
         if (refresh) {
-            close(*socket);
+            closesocket(*socket);
             *socket = open_connection_s(host, "80");
         }
         send_data(*socket, request, strlen(request));
         received = recv(*socket, header_buffer, 8192, 0);
         refresh = strstr(header_buffer, "Connection: close\r\n");
     }
-    if (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0 && retries == 0) {
+    if (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0) {
         dprintf("Retries failed. Will retry one last time with a new connection.\n");
-        close(*socket);
+        closesocket(*socket);
         *socket = open_connection_s(host, "80");
         send_data(*socket, request, strlen(request));
         received = recv(*socket, header_buffer, 8192, 0);
@@ -147,8 +146,8 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
     if (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0) {
         eprintf("Got too many 404s. Can't continue.\n");
         return NULL;
-    } else if (strncmp(header_buffer, "HTTP/1.1 416", 12) == 0) {
-        eprintf("Error: Got a 416 response.\n");
+    } else if (strncmp(header_buffer, "HTTP/1.1 4", 10) == 0 || strncmp(header_buffer, "HTTP/1.1 5", 10) == 0) {
+        eprintf("Error: Got a %c%c%c response.\n", header_buffer[9], header_buffer[10], header_buffer[11]);
         return NULL;
     }
     char* start_of_body = strstr(header_buffer, "\r\n\r\n") + 4;
@@ -160,7 +159,7 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
         body->data = malloc(body->length);
         memcpy(body->data, start_of_body, already_received);
         free(header_buffer);
-        dprintf("already received %d, will try to receive the rest %"PRIu64"\n", already_received, body->length - already_received);
+        dprintf("%d: already received %d, will try to receive the rest %"PRIu64"\n", thread_id, already_received, body->length - already_received);
         receive_data(*socket, (char*) &body->data[already_received], body->length - already_received);
     } else {
         assert(refresh);
@@ -178,13 +177,13 @@ BinaryData* receive_http_body(int* socket, char* request, char* host)
         }
     }
     if (refresh) {
-        close(*socket);
+        closesocket(*socket);
         *socket = open_connection_s(host, "80");
     }
     return body;
 }
 
-uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
+uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks, int thread_id)
 {
     int host_end;
     char* host = get_host(url, &host_end);
@@ -210,9 +209,9 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks)
     sprintf(range, "%u-%u\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
     strcat(request_header, range);
     assert(strlen(request_header) < 8192);
-    dprintf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
-    dprintf("request header:\n\"%s\"\n", request_header);
-    BinaryData* body = receive_http_body(socket, request_header, host);
+    dprintf("%d: requesting %d chunk%s\n", thread_id, chunks->length, chunks->length > 1 ? "s" : "");
+    dprintf("%d: request header:\n\"%s\"\n", thread_id, request_header);
+    BinaryData* body = receive_http_body(socket, request_header, host, thread_id);
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));
     if (chunks->length == 1) {
         ranges[0] = body->data;
@@ -245,10 +244,10 @@ BinaryData* download_url(char* url)
     char* host = get_host(url, &host_end);
     int socket = open_connection_s(host, "80");
     char request_header[1024];
-    assert(sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", url + host_end, host) < 1024);
-    BinaryData* data = receive_http_body(&socket, request_header, host);
+    assert(sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", url + host_end, host) < 1024);
+    BinaryData* data = receive_http_body(&socket, request_header, host, 0);
     free(host);
-    close(socket);
+    closesocket(socket);
 
     return data;
 }
