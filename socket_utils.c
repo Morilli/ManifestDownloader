@@ -107,6 +107,8 @@ char* get_host(char* url, int* host_end)
         start_of_host += 8;
     }
     char* end_of_host = strstr(start_of_host, "/");
+    if (!end_of_host)
+        return NULL;
     int string_length = end_of_host - start_of_host;
     char* host = malloc(string_length + 1);
     memcpy(host, start_of_host, string_length);
@@ -212,6 +214,8 @@ uint8_t** download_ranges(int* socket, char* url, ChunkList* chunks, int thread_
     dprintf("%d: requesting %d chunk%s\n", thread_id, chunks->length, chunks->length > 1 ? "s" : "");
     dprintf("%d: request header:\n\"%s\"\n", thread_id, request_header);
     BinaryData* body = receive_http_body(socket, request_header, host, thread_id);
+    if (!body)
+        return NULL;
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));
     if (chunks->length == 1) {
         ranges[0] = body->data;
@@ -242,6 +246,8 @@ BinaryData* download_url(char* url)
     int host_end;
     dprintf("file to download: \"%s\"\n", url);
     char* host = get_host(url, &host_end);
+    if (!host)
+        return NULL;
     int socket = open_connection_s(host, "80");
     char request_header[1024];
     assert(sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", url + host_end, host) < 1024);

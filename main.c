@@ -125,6 +125,10 @@ void* download_file(void* _args)
             for (uint32_t i = 0; i < unique_bundles.length; i++) {
                 sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", args->bundle_base, unique_bundles.objects[i].bundle_id);
                 uint8_t** ranges = download_ranges(&socket, current_bundle_url, &unique_bundles.objects[i].chunks, args->offset_parity);
+                if (!ranges) {
+                    eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
+                    exit(EXIT_FAILURE);
+                }
                 for (uint32_t j = 0; j < unique_bundles.objects[i].chunks.length; j++) {
                     assert(unique_bundles.objects[i].chunks.objects[j].bundle->bundle_id == unique_bundles.objects[i].bundle_id);
                     assert(ZSTD_decompress(buffer + unique_bundles.objects[i].chunks.objects[j].file_offset - initial_file_offset, unique_bundles.objects[i].chunks.objects[j].uncompressed_size, ranges[j], unique_bundles.objects[i].chunks.objects[j].compressed_size) == unique_bundles.objects[i].chunks.objects[j].uncompressed_size);
@@ -163,9 +167,30 @@ void* download_file(void* _args)
     return _args;
 }
 
+void print_help()
+{
+    printf("ManifestDownloader - a tool to download League of Legends files.\n\n");
+    printf("Options: \n");
+    printf("  [-t|--threads] amount\n    Specify amount of download-threads. Default is 1.\n\n");
+    printf("  [-o|--output] path\n    Specify output path. Default is \"output\".\n\n");
+    printf("  [-f|--filter] filter\n    Download only files whose full name matches \"filter\".\n\n");
+    printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languaes to download.\n    Will ONLY download files that match any of these languages.\n\n");
+    printf("  [--no-langs]\n    Will ONLY download language-neutral files, aka no locale-specific ones.\n\n");
+    printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
+    printf("  [-v [-v ...]]\n    Increases verbosity level by one per \"-v\".\n");
+}
+
 
 int main(int argc, char* argv[])
 {
+    if (argc < 2) {
+        eprintf("Missing arguments! Just use the full manifest url or file path as first argument (type --help for more info).\n");
+        exit(EXIT_FAILURE);
+    }
+    if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+        print_help();
+        exit(EXIT_FAILURE);
+    }
     #ifdef _WIN32
         WSADATA wsaData;
         int iResult;
@@ -177,10 +202,6 @@ int main(int argc, char* argv[])
             return 1;
         }
     #endif
-    if (argc < 2) {
-        eprintf("Missing argument! Just use the full manifest url as first argument.\n");
-        exit(EXIT_FAILURE);
-    }
 
     char* outputPath = "output";
     char* bundleBase = "https://lol.dyn.riotcdn.net/channels/public/bundles";
