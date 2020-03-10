@@ -69,6 +69,12 @@ typedef struct {
     (list)->objects = malloc(16 * sizeof((list)->objects[0])); \
 } while (0)
 
+#define initialize_list_size(list, size) do { \
+    (list)->length = 0; \
+    (list)->allocated_length = size; \
+    (list)->objects = malloc((size) * sizeof((list)->objects[0])); \
+} while (0)
+
 #define add_object(list, object) do { \
     if ((list)->length == (list)->allocated_length) { \
         (list)->objects = realloc((list)->objects, ((list)->allocated_length + ((list)->allocated_length >> 1)) * sizeof(*object)); \

@@ -85,9 +85,6 @@ Manifest* parse_manifest_f(char* filepath);
     uint8_t*: parse_manifest_data \
 )(X)
 
-// Manifest* parse_manifest(char* filepath);
-
-int extract_file(File* file, char* output_path, bool overwrite);
-
+BundleList* group_by_bundles(ChunkList* chunks);
 
 #endif

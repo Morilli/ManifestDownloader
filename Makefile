@@ -1,5 +1,5 @@
 CC := gcc
-CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto
+CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto# -DDEBUG
 LDFLAGS := -l:libzstd.a
 
 all: LDFLAGS := $(LDFLAGS) -pthread

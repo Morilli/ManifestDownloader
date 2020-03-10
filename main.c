@@ -1,6 +1,7 @@
 #define _FILE_OFFSET_BITS 64
 #ifndef _WIN32
     #include <sys/socket.h>
+    #include <limits.h>
 #else
     #include <winsock2.h>
     #include <fcntl.h>
@@ -23,7 +24,6 @@
 #include <zstd.h>
 
 int amount_of_threads = 1;
-uint32_t target_download_size = 1024 * 1024;
 struct write_thread {
     FILE* output_file;
     int pipe_to_downloader;
@@ -36,6 +36,7 @@ struct file_thread {
     char* filter;
     char** langs;
     int offset_parity;
+    uint32_t sequential_writing;
 };
 
 void* write_to_file(void* _args)
@@ -94,61 +95,81 @@ void* download_file(void* _args)
         pthread_t tid[1];
         pthread_create(tid, NULL, write_to_file, &(struct write_thread) {.output_file = output_file, .pipe_from_downloader = pipe_to_worker[0], .pipe_to_downloader = pipe_from_worker[1]});
 
-        uint32_t current_chunk = 0;
-        uint32_t initial_file_offset = 0;
-        while (current_chunk < to_download.chunks.length) {
-            ChunkList current_download_list;
-            initialize_list(&current_download_list);
-            uint32_t current_size = 0;
-            while (current_size < target_download_size && current_chunk < to_download.chunks.length) {
-                add_object(&current_download_list, &to_download.chunks.objects[current_chunk]);
-                current_size += to_download.chunks.objects[current_chunk].uncompressed_size;
-                current_chunk++;
-            }
-            dprintf("Downloading %u bytes at once before writing to disk.\n", current_size);
-
-            BundleList unique_bundles;
-            initialize_list(&unique_bundles);
-            for (uint32_t i = 0; i < current_download_list.length; i++) {
-                Bundle *to_find = NULL;
-                find_object_s(&unique_bundles, to_find, bundle_id, current_download_list.objects[i].bundle->bundle_id);
-                if (!to_find) {
-                    Bundle to_add = {.bundle_id = current_download_list.objects[i].bundle->bundle_id};
-                    initialize_list(&to_add.chunks);
-                    add_object_s(&to_add.chunks, &current_download_list.objects[i], bundle_offset);
-                    add_object(&unique_bundles, &to_add);
-                } else {
-                    add_object_s(&to_find->chunks, &current_download_list.objects[i], bundle_offset);
+        if (args->sequential_writing) {
+            uint32_t current_chunk = 0;
+            uint32_t initial_file_offset = 0;
+            while (current_chunk < to_download.chunks.length) {
+                ChunkList current_download_list = {
+                    .length = 0,
+                    .objects = &to_download.chunks.objects[current_chunk]
+                };
+                uint32_t current_size = 0;
+                while (current_size < args->sequential_writing && current_chunk < to_download.chunks.length) {
+                    current_size += to_download.chunks.objects[current_chunk].uncompressed_size;
+                    current_download_list.length++;
+                    current_chunk++;
                 }
+                dprintf("Downloading %u bytes at once before writing to disk.\n", current_size);
+
+                BundleList* unique_bundles = group_by_bundles(&current_download_list);
+
+                uint8_t* buffer = malloc(current_size);
+                for (uint32_t i = 0; i < unique_bundles->length; i++) {
+                    sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", args->bundle_base, unique_bundles->objects[i].bundle_id);
+                    uint8_t** ranges = download_ranges(&socket, current_bundle_url, &unique_bundles->objects[i].chunks, args->offset_parity);
+                    if (!ranges) {
+                        eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    for (uint32_t j = 0; j < unique_bundles->objects[i].chunks.length; j++) {
+                        assert(ZSTD_decompress(buffer + unique_bundles->objects[i].chunks.objects[j].file_offset - initial_file_offset, unique_bundles->objects[i].chunks.objects[j].uncompressed_size, ranges[j], unique_bundles->objects[i].chunks.objects[j].compressed_size) == unique_bundles->objects[i].chunks.objects[j].uncompressed_size);
+                        free(ranges[j]);
+                    }
+                    free(ranges);
+                }
+                BinaryData* to_write = malloc(sizeof(BinaryData));
+                to_write->data = buffer;
+                to_write->length = current_size;
+                assert(read(pipe_from_worker[0], &(uint8_t) {0}, 1) == 1);
+                assert(write(pipe_to_worker[1], &to_write, sizeof(BinaryData*)) == sizeof(BinaryData*));
+
+                for (uint32_t i = 0; i < unique_bundles->length; i++) {
+                    free(unique_bundles->objects[i].chunks.objects);
+                }
+                free(unique_bundles->objects);
+                free(unique_bundles);
+
+                initial_file_offset += current_size;
             }
-            uint8_t* buffer = malloc(current_size);
-            for (uint32_t i = 0; i < unique_bundles.length; i++) {
-                sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", args->bundle_base, unique_bundles.objects[i].bundle_id);
-                uint8_t** ranges = download_ranges(&socket, current_bundle_url, &unique_bundles.objects[i].chunks, args->offset_parity);
+        } else {
+            BundleList* unique_bundles = group_by_bundles(&to_download.chunks);
+
+            for (uint32_t i = 0; i < unique_bundles->length; i++) {
+                sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", args->bundle_base, unique_bundles->objects[i].bundle_id);
+                uint8_t** ranges = download_ranges(&socket, current_bundle_url, &unique_bundles->objects[i].chunks, args->offset_parity);
                 if (!ranges) {
                     eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
                     exit(EXIT_FAILURE);
                 }
-                for (uint32_t j = 0; j < unique_bundles.objects[i].chunks.length; j++) {
-                    assert(unique_bundles.objects[i].chunks.objects[j].bundle->bundle_id == unique_bundles.objects[i].bundle_id);
-                    assert(ZSTD_decompress(buffer + unique_bundles.objects[i].chunks.objects[j].file_offset - initial_file_offset, unique_bundles.objects[i].chunks.objects[j].uncompressed_size, ranges[j], unique_bundles.objects[i].chunks.objects[j].compressed_size) == unique_bundles.objects[i].chunks.objects[j].uncompressed_size);
+                for (uint32_t j = 0; j < unique_bundles->objects[i].chunks.length; j++) {
+                    BinaryData* to_write = malloc(sizeof(BinaryData));
+                    to_write->length = unique_bundles->objects[i].chunks.objects[j].uncompressed_size;
+                    to_write->data = malloc(to_write->length);
+                    assert(ZSTD_decompress(to_write->data, unique_bundles->objects[i].chunks.objects[j].uncompressed_size, ranges[j], unique_bundles->objects[i].chunks.objects[j].compressed_size) == unique_bundles->objects[i].chunks.objects[j].uncompressed_size);
+
+                    assert(read(pipe_from_worker[0], &(uint8_t) {0}, 1) == 1);
+                    fseek(output_file, unique_bundles->objects[i].chunks.objects[j].file_offset, SEEK_SET);
+                    assert(write(pipe_to_worker[1], &to_write, sizeof(BinaryData*)) == sizeof(BinaryData*));
                     free(ranges[j]);
                 }
                 free(ranges);
             }
-            BinaryData* to_write = malloc(sizeof(BinaryData));
-            to_write->data = buffer;
-            to_write->length = current_size;
-            assert(read(pipe_from_worker[0], &(uint8_t) {0}, 1) == 1);
-            assert(write(pipe_to_worker[1], &to_write, sizeof(BinaryData*)) == sizeof(BinaryData*));
 
-            free(current_download_list.objects);
-            for (uint32_t i = 0; i < unique_bundles.length; i++) {
-                free(unique_bundles.objects[i].chunks.objects);
+            for (uint32_t i = 0; i < unique_bundles->length; i++) {
+                free(unique_bundles->objects[i].chunks.objects);
             }
-            free(unique_bundles.objects);
-
-            initial_file_offset += current_size;
+            free(unique_bundles->objects);
+            free(unique_bundles);
         }
 
         assert(read(pipe_from_worker[0], &(uint8_t) {0}, 1) == 1);
@@ -169,7 +190,7 @@ void* download_file(void* _args)
 
 void print_help()
 {
-    printf("ManifestDownloader - a tool to download League of Legends files.\n\n");
+    printf("ManifestDownloader - a tool to download League of Legends (and other Riot Games games') files.\n\n");
     printf("Options: \n");
     printf("  [-t|--threads] amount\n    Specify amount of download-threads. Default is 1.\n\n");
     printf("  [-o|--output] path\n    Specify output path. Default is \"output\".\n\n");
@@ -177,6 +198,8 @@ void print_help()
     printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languaes to download.\n    Will ONLY download files that match any of these languages.\n\n");
     printf("  [--no-langs]\n    Will ONLY download language-neutral files, aka no locale-specific ones.\n\n");
     printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
+    printf("  [--sequential] value\n    Write files sequentially by downloading value bytes before writing to disk. Increasing\n    this value might increase RAM usage linearly and improve download speed. Default is 16MB.\n\n");
+    printf("  [--no-sequential]\n    Don't write files sequentially. This will use up minimal RAM and download the fastest, but\n    might overload the (slow) disk and cause the downloading to fail when multiple threads are used.\n\n");
     printf("  [-v [-v ...]]\n    Increases verbosity level by one per \"-v\".\n");
 }
 
@@ -209,6 +232,7 @@ int main(int argc, char* argv[])
     char* langs[65];
     bool download_locales = true;
     int langs_length = 0;
+    uint32_t sequential_writing = 16 * 1024 * 1024;
     for (char** arg = &argv[2]; *arg; arg++) {
         if (strcmp(*arg, "-t") == 0 || strcmp(*arg, "--threads") == 0) {
             if (*(arg + 1)) {
@@ -243,6 +267,19 @@ int main(int argc, char* argv[])
             }
         } else if (strcmp(*arg, "--no-langs") == 0) {
             download_locales = false;
+        } else if (strcmp(*arg, "--sequential") == 0) {
+            if (*(arg + 1)) {
+                arg++;
+                uintmax_t _sequential_writing = strtoumax(*arg, NULL, 10);
+                if (_sequential_writing == 0 || _sequential_writing == UINTMAX_MAX || _sequential_writing > UINT32_MAX) {
+                    eprintf("Invalid or no value provided for sequential writing. Use 0 < value <= %u.\n", UINT32_MAX);
+                    exit(EXIT_FAILURE);
+                } else {
+                    sequential_writing = _sequential_writing;
+                }
+            }
+        } else if (strcmp(*arg, "--no-sequential") == 0) {
+            sequential_writing = 0;
         } else if (strcmp(*arg, "-v") == 0) {
             VERBOSE++;
         }
@@ -255,6 +292,12 @@ int main(int argc, char* argv[])
     vprintf(1, "Filter: \"%s\"\n", filter);
     for (int i = 0; langs[i]; i++) {
         vprintf(1, "langs[%d]: %s\n", i, langs[i]);
+    }
+    vprintf(1, "Downloading languages: %s\n", download_locales ? "true" : "false");
+    if (sequential_writing) {
+        vprintf(1, "Using sequential writing: true; writing %u bytes sequentially.\n", sequential_writing);
+    } else {
+        vprintf(1, "Using sequential writing: false\n");
     }
 
     char* manifestPath = argv[1];
@@ -310,6 +353,7 @@ int main(int argc, char* argv[])
         file_thread->output_path = outputPath;
         file_thread->bundle_base = bundleBase;
         file_thread->offset_parity = i;
+        file_thread->sequential_writing = sequential_writing;
         pthread_create(&tid[i], NULL, download_file, (void*) file_thread);
     }
     for (uint8_t i = 0; i < amount_of_threads; i++) {

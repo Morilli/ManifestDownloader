@@ -157,7 +157,7 @@ BinaryData* receive_http_body(int* socket, char* request, char* host, int thread
     int already_received = received - (start_of_body - header_buffer);
     BinaryData* body = malloc(sizeof(BinaryData));
     if (content_length_position) {
-        body->length = strtol(content_length_position + 16, NULL, 10);
+        body->length = strtoumax(content_length_position + 15, NULL, 10);
         body->data = malloc(body->length);
         memcpy(body->data, start_of_body, already_received);
         free(header_buffer);
