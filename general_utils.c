@@ -77,14 +77,17 @@ int create_dir(char* path)
 int create_dirs(char* dir_path, bool create_last)
 {
     char* c = dir_path;
+    if (strlen(c) >= 3 && c[1] == ':' && (c[2] == '\\' || c[2] == '/'))
+        c += 3;
     while (*c != 0) {
         c++;
         if (*c == '/' || *c == '\\') {
             char _c = *c;
             *c = '\0';
-            if (create_dir(dir_path) == -1)
-                return -1;
+            int ret = create_dir(dir_path);
             *c = _c;
+            if (ret == -1)
+                return -1;
         }
     }
     if (create_last && create_dir(dir_path) == -1)
