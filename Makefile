@@ -16,7 +16,9 @@ rman.o: rman.c rman.h defs.h general_utils.h
 socket_utils.o: socket_utils.c socket_utils.h rman.h defs.h general_utils.h
 main.o: rman.h socket_utils.h defs.h general_utils.h
 
-ManifestDownloader ManifestDownloader.exe: general_utils.o rman.o socket_utils.o main.o
+sha/sha2.o: sha/sha2.c sha/sha2.h sha/brg_endian.h sha/brg_types.h
+
+ManifestDownloader ManifestDownloader.exe: general_utils.o rman.o socket_utils.o main.o sha/sha2.o
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
 
 

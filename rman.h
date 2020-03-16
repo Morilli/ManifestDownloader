@@ -87,4 +87,6 @@ Manifest* parse_manifest_f(char* filepath);
 
 BundleList* group_by_bundles(ChunkList* chunks);
 
+bool chunk_valid(BinaryData* chunk, uint64_t chunk_id);
+
 #endif

@@ -24,168 +24,300 @@
 #include <zstd.h>
 
 int amount_of_threads = 1;
-struct write_thread {
-    FILE* output_file;
-    int pipe_to_downloader;
-    int pipe_from_downloader;
-};
-struct file_thread {
+char* bundle_base;
+
+struct download_args {
     FileList* to_download;
     char* output_path;
-    char* bundle_base;
     char* filter;
     char** langs;
-    int offset_parity;
-    uint32_t sequential_writing;
+    bool verify_only;
+    bool skip_existing;
+    bool existing_only;
+};
+struct bundle_args {
+    SOCKET socket;
+    int coordinate_pipes[2];
+    struct variable_bundle_args* variable_args;
+};
+struct variable_bundle_args {
+    BundleList* to_download;
+    FILE* output_file;
+    pthread_mutex_t* file_lock;
+    uint32_t* index;
+    int* threads_visited;
+    pthread_mutex_t* index_lock;
 };
 
-void* write_to_file(void* _args)
+void cleanup_variable_bundle_args(struct variable_bundle_args* args)
 {
-    struct write_thread* args = _args;
-    BinaryData* data;
-
-    while (1) {
-        assert(write(args->pipe_to_downloader, &(uint8_t) {'\0'}, 1) == 1);
-        assert(read(args->pipe_from_downloader, &data, sizeof(BinaryData*)) == sizeof(BinaryData*));
-        if (!data)
-            break;
-
-        fwrite(data->data, data->length, 1, args->output_file);
-        free(data->data);
-        free(data);
+    fseeko(args->output_file, 0, SEEK_END);
+    assert(ftruncate(fileno(args->output_file), ftello(args->output_file) - 1) == 0);
+    fclose(args->output_file);
+    pthread_mutex_destroy(args->file_lock);
+    free(args->file_lock);
+    free(args->index);
+    free(args->threads_visited);
+    pthread_mutex_unlock(args->index_lock);
+    pthread_mutex_destroy(args->index_lock);
+    free(args->index_lock);
+    for (uint32_t i = 0; i < args->to_download->length; i++) {
+        free(args->to_download->objects[i].chunks.objects);
     }
-
-    return NULL;
+    free(args->to_download->objects);
+    free(args->to_download);
 }
 
-void* download_file(void* _args)
+void* download_and_write_bundle(void* _args)
 {
-    struct file_thread* args = (struct file_thread*) _args;
-    char* host = get_host(args->bundle_base, NULL);
-    int socket = open_connection_s(host, "80");
-    free(host);
+    struct bundle_args* args = _args;
+    uint32_t index;
+    char* current_bundle_url = malloc(strlen(bundle_base) + 25);
+    bool visited = false;
+    while (1) {
+        pthread_mutex_t* lock = args->variable_args->index_lock;
+        pthread_mutex_lock(lock);
+        index = *args->variable_args->index;
+        (*args->variable_args->index)++;
+        if (!visited) {
+            (*args->variable_args->threads_visited)++;
+            visited = true;
+        }
+        pthread_mutex_unlock(lock);
 
-    char* current_bundle_url = malloc(strlen(args->bundle_base) + 25);
-    for (uint32_t i = args->offset_parity; i < args->to_download->length; i += amount_of_threads) {
+        if (index >= args->variable_args->to_download->length) {
+            if (index == args->variable_args->to_download->length + (*args->variable_args->threads_visited) - 1) {
+                cleanup_variable_bundle_args(args->variable_args);
+            }
+            free(args->variable_args);
+            assert(write(args->coordinate_pipes[1], &(uint8_t) {0}, 1) == 1);
+            assert(read(args->coordinate_pipes[0], &args->variable_args, sizeof(struct variable_bundle_thread*)) == sizeof(struct variable_bundle_thread*));
+            visited = false;
+            if (!args->variable_args)
+                break;
+
+            continue;
+        }
+
+        sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", bundle_base, args->variable_args->to_download->objects[index].bundle_id);
+        uint8_t** ranges = download_ranges(&args->socket, current_bundle_url, &args->variable_args->to_download->objects[index].chunks);
+        if (!ranges) {
+            eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
+            exit(EXIT_FAILURE);
+        }
+        for (uint32_t j = 0; j < args->variable_args->to_download->objects[index].chunks.length; j++) {
+            uint8_t* to_write = malloc(args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
+            assert(ZSTD_decompress(to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, ranges[j], args->variable_args->to_download->objects[index].chunks.objects[j].compressed_size) == args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
+
+            pthread_mutex_lock(args->variable_args->file_lock);
+            fseek(args->variable_args->output_file, args->variable_args->to_download->objects[index].chunks.objects[j].file_offset, SEEK_SET);
+            fwrite(to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, 1, args->variable_args->output_file);
+            pthread_mutex_unlock(args->variable_args->file_lock);
+            free(to_write);
+            free(ranges[j]);
+        }
+        free(ranges);
+    }
+    closesocket(args->socket);
+    free(current_bundle_url);
+
+    return _args;
+}
+
+void download_files(struct download_args* args)
+{
+    char* host = get_host(bundle_base, NULL);
+
+    int pipe_to_downloader[2], pipe_from_downloader[2];
+    #ifdef _WIN32
+        assert(_pipe(pipe_to_downloader, sizeof(void*), O_BINARY) == 0);
+        assert(_pipe(pipe_from_downloader, 1, O_BINARY) == 0);
+    #else
+        assert(pipe(pipe_to_downloader) == 0);
+        assert(pipe(pipe_from_downloader) == 0);
+    #endif
+
+    pthread_t tid[amount_of_threads];
+
+    int threads_created = 0;
+    bool do_read = true;
+
+    for (uint32_t i = 0; i < args->to_download->length; i++) {
         File to_download = args->to_download->objects[i];
         char* file_output_path = malloc(strlen(args->output_path) + strlen(to_download.name) + 2);
         sprintf(file_output_path, "%s/%s", args->output_path, to_download.name);
         struct stat file_info;
         stat(file_output_path, &file_info);
-        if (access(file_output_path, F_OK) == 0 && file_info.st_size == to_download.file_size) {
+        ChunkList chunks_to_download;
+        bool fixup = false;
+        if (access(file_output_path, F_OK) == 0) {
+            if (args->skip_existing && file_info.st_size == to_download.file_size) {
+                free(file_output_path);
+                vprintf(2, "Skipping file %s\n", to_download.name);
+                continue;
+            } else {
+                fixup = true;
+                printf("Verifying file %s...\r", to_download.name);
+                fflush(stdout);
+                initialize_list(&chunks_to_download);
+                if (args->verify_only && file_info.st_size != to_download.file_size) {
+                    goto verify_failed;
+                }
+                FILE* input_file = fopen(file_output_path, "rb+");
+                assert(input_file);
+                for (uint32_t i = 0; i < to_download.chunks.length; i++) {
+                    if (file_info.st_size < to_download.chunks.objects[i].file_offset + to_download.chunks.objects[i].uncompressed_size) {
+                        if (args->verify_only) {
+                            fclose(input_file);
+                            goto verify_failed;
+                        }
+                        add_objects(&chunks_to_download, &to_download.chunks.objects[i], to_download.chunks.length - i);
+                        break;
+                    } else {
+                        BinaryData current_chunk = {
+                            .length = to_download.chunks.objects[i].uncompressed_size,
+                            .data = malloc(to_download.chunks.objects[i].uncompressed_size)
+                        };
+                        assert(fread(current_chunk.data, 1, to_download.chunks.objects[i].uncompressed_size, input_file) == to_download.chunks.objects[i].uncompressed_size);
+                        if (!chunk_valid(&current_chunk, to_download.chunks.objects[i].chunk_id)) {
+                            if (args->verify_only) {
+                                fclose(input_file);
+                                free(current_chunk.data);
+                                goto verify_failed;
+                            } else {
+                                add_object(&chunks_to_download, &to_download.chunks.objects[i]);
+                            }
+                        }
+                        free(current_chunk.data);
+                    }
+                }
+                fclose(input_file);
+                if (chunks_to_download.length == 0 && file_info.st_size == to_download.file_size) {
+                    printf("File %s is correct. \n", to_download.name);
+                    free(file_output_path);
+                    free(chunks_to_download.objects);
+                    continue;
+                } else verify_failed: {
+                    printf("File %s is incorrect.\n", to_download.name);
+                    if (args->verify_only) {
+                        free(file_output_path);
+                        free(chunks_to_download.objects);
+                        continue;
+                    }
+                }
+            }
+        } else if (args->existing_only) {
             free(file_output_path);
-            printf("Skipping file %s\n", to_download.name);
+            continue;
+        } else if (args->verify_only) {
+            printf("File %s is missing.\n", to_download.name);
+            free(file_output_path);
             continue;
         }
-        printf("Downloading file %s...\n", to_download.name);
-        create_dirs(file_output_path, false);
-        FILE* output_file = fopen(file_output_path, "wb");
-        vprintf(2, "Downloading to %s\n", file_output_path);
-        assert(output_file);
 
-        int pipe_to_worker[2], pipe_from_worker[2];
-        #ifdef _WIN32
-            assert(_pipe(pipe_to_worker, sizeof(BinaryData*), O_BINARY) == 0);
-            assert(_pipe(pipe_from_worker, 1, O_BINARY) == 0);
-        #else
-            assert(pipe(pipe_to_worker) == 0);
-            assert(pipe(pipe_from_worker) == 0);
-        #endif
 
-        pthread_t tid[1];
-        pthread_create(tid, NULL, write_to_file, &(struct write_thread) {.output_file = output_file, .pipe_from_downloader = pipe_to_worker[0], .pipe_to_downloader = pipe_from_worker[1]});
-
-        if (args->sequential_writing) {
-            uint32_t current_chunk = 0;
-            uint32_t initial_file_offset = 0;
-            while (current_chunk < to_download.chunks.length) {
-                ChunkList current_download_list = {
-                    .length = 0,
-                    .objects = &to_download.chunks.objects[current_chunk]
-                };
-                uint32_t current_size = 0;
-                while (current_size < args->sequential_writing && current_chunk < to_download.chunks.length) {
-                    current_size += to_download.chunks.objects[current_chunk].uncompressed_size;
-                    current_download_list.length++;
-                    current_chunk++;
-                }
-                dprintf("Downloading %u bytes at once before writing to disk.\n", current_size);
-
-                BundleList* unique_bundles = group_by_bundles(&current_download_list);
-
-                uint8_t* buffer = malloc(current_size);
-                for (uint32_t i = 0; i < unique_bundles->length; i++) {
-                    sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", args->bundle_base, unique_bundles->objects[i].bundle_id);
-                    uint8_t** ranges = download_ranges(&socket, current_bundle_url, &unique_bundles->objects[i].chunks, args->offset_parity);
-                    if (!ranges) {
-                        eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
-                        exit(EXIT_FAILURE);
-                    }
-                    for (uint32_t j = 0; j < unique_bundles->objects[i].chunks.length; j++) {
-                        assert(ZSTD_decompress(buffer + unique_bundles->objects[i].chunks.objects[j].file_offset - initial_file_offset, unique_bundles->objects[i].chunks.objects[j].uncompressed_size, ranges[j], unique_bundles->objects[i].chunks.objects[j].compressed_size) == unique_bundles->objects[i].chunks.objects[j].uncompressed_size);
-                        free(ranges[j]);
-                    }
-                    free(ranges);
-                }
-                BinaryData* to_write = malloc(sizeof(BinaryData));
-                to_write->data = buffer;
-                to_write->length = current_size;
-                assert(read(pipe_from_worker[0], &(uint8_t) {0}, 1) == 1);
-                assert(write(pipe_to_worker[1], &to_write, sizeof(BinaryData*)) == sizeof(BinaryData*));
-
-                for (uint32_t i = 0; i < unique_bundles->length; i++) {
-                    free(unique_bundles->objects[i].chunks.objects);
-                }
-                free(unique_bundles->objects);
-                free(unique_bundles);
-
-                initial_file_offset += current_size;
+        FILE* output_file;
+        if (fixup) {
+            printf("Fixing up file %s...\n", to_download.name);
+            if (chunks_to_download.length == 0) {
+                free(chunks_to_download.objects);
+                assert(truncate(file_output_path, to_download.file_size) == 0);
+                free(file_output_path);
+                continue;
+            } else {
+                output_file = fopen(file_output_path, "rb+");
             }
         } else {
-            BundleList* unique_bundles = group_by_bundles(&to_download.chunks);
-
-            for (uint32_t i = 0; i < unique_bundles->length; i++) {
-                sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", args->bundle_base, unique_bundles->objects[i].bundle_id);
-                uint8_t** ranges = download_ranges(&socket, current_bundle_url, &unique_bundles->objects[i].chunks, args->offset_parity);
-                if (!ranges) {
-                    eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
-                    exit(EXIT_FAILURE);
-                }
-                for (uint32_t j = 0; j < unique_bundles->objects[i].chunks.length; j++) {
-                    BinaryData* to_write = malloc(sizeof(BinaryData));
-                    to_write->length = unique_bundles->objects[i].chunks.objects[j].uncompressed_size;
-                    to_write->data = malloc(to_write->length);
-                    assert(ZSTD_decompress(to_write->data, unique_bundles->objects[i].chunks.objects[j].uncompressed_size, ranges[j], unique_bundles->objects[i].chunks.objects[j].compressed_size) == unique_bundles->objects[i].chunks.objects[j].uncompressed_size);
-
-                    assert(read(pipe_from_worker[0], &(uint8_t) {0}, 1) == 1);
-                    fseek(output_file, unique_bundles->objects[i].chunks.objects[j].file_offset, SEEK_SET);
-                    assert(write(pipe_to_worker[1], &to_write, sizeof(BinaryData*)) == sizeof(BinaryData*));
-                    free(ranges[j]);
-                }
-                free(ranges);
-            }
-
-            for (uint32_t i = 0; i < unique_bundles->length; i++) {
-                free(unique_bundles->objects[i].chunks.objects);
-            }
-            free(unique_bundles->objects);
-            free(unique_bundles);
+            printf("Downloading file %s...\n", to_download.name);
+            create_dirs(file_output_path, false);
+            output_file = fopen(file_output_path, "wb");
         }
-
-        assert(read(pipe_from_worker[0], &(uint8_t) {0}, 1) == 1);
-        assert(write(pipe_to_worker[1], &(void*) {NULL}, sizeof(NULL)) == sizeof(NULL));
-        pthread_join(tid[0], NULL);
-        close(pipe_from_worker[0]);
-        close(pipe_from_worker[1]);
-        close(pipe_to_worker[0]);
-        close(pipe_to_worker[1]);
-        fclose(output_file);
+        vprintf(2, "Downloading to %s\n", file_output_path);
+        assert(output_file);
         free(file_output_path);
-    }
-    free(current_bundle_url);
-    closesocket(socket);
 
-    return _args;
+        fseeko(output_file, to_download.file_size, SEEK_SET);
+        putc(0, output_file);
+        // rewind(output_file);
+        pthread_mutex_t* file_lock = malloc(sizeof(pthread_mutex_t));
+        pthread_mutex_init(file_lock, NULL);
+        BundleList* unique_bundles = group_by_bundles(fixup ? &chunks_to_download : &to_download.chunks);
+        if (fixup) {
+            free(chunks_to_download.objects);
+        }
+        printf("amount of bundles to download: %d\n", unique_bundles->length);
+        uint32_t* index = malloc(sizeof(uint32_t));
+        *index = 0;
+        int* threads_visited = malloc(sizeof(int));
+        *threads_visited = 0;
+        pthread_mutex_t* index_lock = malloc(sizeof(pthread_mutex_t));
+        pthread_mutex_init(index_lock, NULL);
+
+        uint32_t current_index = 0;
+        if (threads_created < amount_of_threads) {
+            pthread_mutex_lock(index_lock);
+            while (threads_created < amount_of_threads && current_index < unique_bundles->length) {
+                struct bundle_args* new_bundle_args = malloc(sizeof(struct bundle_args));
+                new_bundle_args->socket = open_connection_s(host, "80");
+                new_bundle_args->coordinate_pipes[0] = pipe_to_downloader[0];
+                new_bundle_args->coordinate_pipes[1] = pipe_from_downloader[1];
+                struct variable_bundle_args* new_variable_args = malloc(sizeof(struct variable_bundle_args));
+                new_variable_args->to_download = unique_bundles;
+                new_variable_args->output_file = output_file;
+                new_variable_args->file_lock = file_lock;
+                new_variable_args->index = index;
+                new_variable_args->threads_visited = threads_visited;
+                new_variable_args->index_lock = index_lock;
+                new_bundle_args->variable_args = new_variable_args;
+                pthread_create(&tid[threads_created], NULL, download_and_write_bundle, new_bundle_args);
+                current_index++;
+                threads_created++;
+            }
+            pthread_mutex_unlock(index_lock);
+        }
+        if (threads_created == amount_of_threads && current_index < unique_bundles->length) {
+            while (1) {
+                printf("entered this infinite loop.\n");
+                if (!do_read) {
+                    do_read = true;
+                } else {
+                    assert(read(pipe_from_downloader[0], &(uint8_t) {0}, 1) == 1);
+                }
+                if (*index >= unique_bundles->length || (*index == unique_bundles->length - 1 && unique_bundles->length != 1)) {
+                    do_read = false;
+                    break;
+                }
+                struct variable_bundle_args* new_variable_bundle_args = malloc(sizeof(struct variable_bundle_args));
+                new_variable_bundle_args->index = index;
+                new_variable_bundle_args->threads_visited = threads_visited;
+                new_variable_bundle_args->index_lock = index_lock;
+                new_variable_bundle_args->output_file = output_file;
+                new_variable_bundle_args->file_lock = file_lock;
+                new_variable_bundle_args->to_download = unique_bundles;
+                assert(write(pipe_to_downloader[1], &new_variable_bundle_args, sizeof(struct bundle_thread*)) == sizeof(struct bundle_thread*));
+                if (unique_bundles->length == 1)
+                    break;
+            }
+        }
+    }
+
+    for (int i = 0; i < threads_created; i++) {
+        if (!do_read)
+            do_read = true;
+        else
+            assert(read(pipe_from_downloader[0], &(uint8_t) {0}, 1) == 1);
+        assert(write(pipe_to_downloader[1], &(void*) {NULL}, sizeof(NULL)) == sizeof(NULL));
+    }
+    for (int i = 0; i < threads_created; i++) {
+        void* to_free;
+        pthread_join(tid[i], &to_free);
+        free(to_free);
+    }
+    free(host);
+    close(pipe_from_downloader[0]);
+    close(pipe_from_downloader[1]);
+    close(pipe_to_downloader[0]);
+    close(pipe_to_downloader[1]);
 }
 
 void print_help()
@@ -198,8 +330,9 @@ void print_help()
     printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languaes to download.\n    Will ONLY download files that match any of these languages.\n\n");
     printf("  [--no-langs]\n    Will ONLY download language-neutral files, aka no locale-specific ones.\n\n");
     printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
-    printf("  [--sequential] value\n    Write files sequentially by downloading value bytes before writing to disk. Increasing\n    this value might increase RAM usage linearly and improve download speed. Default is 16MB.\n\n");
-    printf("  [--no-sequential]\n    Don't write files sequentially. This will use up minimal RAM and download the fastest, but\n    might overload the (slow) disk and cause the downloading to fail when multiple threads are used.\n\n");
+    printf("  [--verify-only]\n    Check files only and print results, but don't update files on disk.\n\n");
+    printf("  [--existing-only]\n    Only operate on existing files. Non-existent files are ignored / not created.\n\n");
+    printf("  [--skip-existing]\n    By default, all existing files are verified and overwritten if they aren't correct.\n    By specifying this flag existing files will not be checked if their file size matches the expected one.\n\n");
     printf("  [-v [-v ...]]\n    Increases verbosity level by one per \"-v\".\n");
 }
 
@@ -227,12 +360,14 @@ int main(int argc, char* argv[])
     #endif
 
     char* outputPath = "output";
-    char* bundleBase = "https://lol.dyn.riotcdn.net/channels/public/bundles";
+    bundle_base = "https://lol.dyn.riotcdn.net/channels/public/bundles";
     char* filter = "";
     char* langs[65];
     bool download_locales = true;
     int langs_length = 0;
-    uint32_t sequential_writing = 16 * 1024 * 1024;
+    bool verify_only = false;
+    bool skip_existing = false;
+    bool existing_only = false;
     for (char** arg = &argv[2]; *arg; arg++) {
         if (strcmp(*arg, "-t") == 0 || strcmp(*arg, "--threads") == 0) {
             if (*(arg + 1)) {
@@ -247,7 +382,7 @@ int main(int argc, char* argv[])
         } else if (strcmp(*arg, "-b") == 0 || strncmp(*arg, "--bundle", 8) == 0) {
             if (*(arg + 1)) {
                 arg++;
-                bundleBase = *arg;
+                bundle_base = *arg;
             }
         } else if (strcmp(*arg, "-f") == 0 || strcmp(*arg, "--filter") == 0) {
             if (*(arg + 1)) {
@@ -267,19 +402,12 @@ int main(int argc, char* argv[])
             }
         } else if (strcmp(*arg, "--no-langs") == 0) {
             download_locales = false;
-        } else if (strcmp(*arg, "--sequential") == 0) {
-            if (*(arg + 1)) {
-                arg++;
-                uintmax_t _sequential_writing = strtoumax(*arg, NULL, 10);
-                if (_sequential_writing == 0 || _sequential_writing == UINTMAX_MAX || _sequential_writing > UINT32_MAX) {
-                    eprintf("Invalid or no value provided for sequential writing. Use 0 < value <= %u.\n", UINT32_MAX);
-                    exit(EXIT_FAILURE);
-                } else {
-                    sequential_writing = _sequential_writing;
-                }
-            }
-        } else if (strcmp(*arg, "--no-sequential") == 0) {
-            sequential_writing = 0;
+        } else if (strcmp(*arg, "--verify-only") == 0) {
+            verify_only = true;
+        } else if (strcmp(*arg, "--skip-existing") == 0) {
+            skip_existing = true;
+        } else if (strcmp(*arg, "--existing-only") == 0) {
+            existing_only = true;
         } else if (strcmp(*arg, "-v") == 0) {
             VERBOSE++;
         }
@@ -288,26 +416,22 @@ int main(int argc, char* argv[])
 
     vprintf(1, "output path: %s\n", outputPath);
     vprintf(1, "amount of threads: %d\n", amount_of_threads);
-    vprintf(1, "base bundle download path: %s\n", bundleBase);
+    vprintf(1, "base bundle download path: %s\n", bundle_base);
     vprintf(1, "Filter: \"%s\"\n", filter);
     for (int i = 0; langs[i]; i++) {
         vprintf(1, "langs[%d]: %s\n", i, langs[i]);
     }
     vprintf(1, "Downloading languages: %s\n", download_locales ? "true" : "false");
-    if (sequential_writing) {
-        vprintf(1, "Using sequential writing: true; writing %u bytes sequentially.\n", sequential_writing);
-    } else {
-        vprintf(1, "Using sequential writing: false\n");
-    }
 
     char* manifestPath = argv[1];
 
     create_dirs(outputPath, true);
 
     Manifest* parsed_manifest;
-    if (access(manifestPath, F_OK) == 0)
+    if (access(manifestPath, F_OK) == 0) {
         parsed_manifest = parse_manifest(manifestPath);
-    else {
+    } else {
+        vprintf(1, "Info: Assuming \"%s\" is a url.\n", manifestPath);
         BinaryData* data = download_url(manifestPath);
         if (!data) {
             eprintf("Make sure the first argument is a valid path to a manifest file or a valid url.\n");
@@ -318,7 +442,6 @@ int main(int argc, char* argv[])
         free(data);
     }
 
-    pthread_t tid[amount_of_threads];
     FileList to_download;
     initialize_list(&to_download);
     for (uint32_t i = 0; i < parsed_manifest->files.length; i++) {
@@ -347,20 +470,14 @@ int main(int argc, char* argv[])
         vprintf(2, "\"%s\"\n", to_download.objects[i].name);
     }
 
-    for (uint8_t i = 0; i < amount_of_threads; i++) {
-        struct file_thread* file_thread = malloc(sizeof(struct file_thread));
-        file_thread->to_download = &to_download;
-        file_thread->output_path = outputPath;
-        file_thread->bundle_base = bundleBase;
-        file_thread->offset_parity = i;
-        file_thread->sequential_writing = sequential_writing;
-        pthread_create(&tid[i], NULL, download_file, (void*) file_thread);
-    }
-    for (uint8_t i = 0; i < amount_of_threads; i++) {
-        void* to_free;
-        pthread_join(tid[i], &to_free);
-        free(to_free);
-    }
+    struct download_args download_args = {
+        .to_download = &to_download,
+        .output_path = outputPath,
+        .verify_only = verify_only,
+        .existing_only = existing_only,
+        .skip_existing = skip_existing
+    };
+    download_files(&download_args);
     free(to_download.objects);
 
     free_manifest(parsed_manifest);

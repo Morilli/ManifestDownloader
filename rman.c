@@ -11,7 +11,52 @@
 #include "rman.h"
 
 #include <zstd.h>
+#include "sha/sha2.h"
 
+
+bool chunk_valid(BinaryData* chunk, uint64_t chunk_id)
+{
+    // code taken straight from moonshadow, no idea what this shit is lol
+    sha256_ctx sha;
+    sha256_begin(&sha);
+    uint8_t key[64] = {0};
+    sha256_hash(chunk->data, chunk->length, &sha);
+    sha256_end(key, &sha);
+    uint8_t ipad[64], opad[64];
+    memcpy(ipad, key, 64);
+    memcpy(opad, key, 64);
+    for (int i = 0; i < 64; i++) {
+        ipad[i] ^= 0x36;
+        opad[i] ^= 0x5C;
+    }
+    uint8_t buffer[32];
+    uint8_t index[4] = {0, 0, 0, 1};
+    sha256_begin(&sha);
+    sha256_hash(ipad, 64, &sha);
+    sha256_hash(index, 4, &sha);
+    sha256_end(buffer, &sha);
+    sha256_begin(&sha);
+    sha256_hash(opad, 64, &sha);
+    sha256_hash(buffer, 32, &sha);
+    sha256_end(buffer, &sha);
+    uint8_t result[32];
+    memcpy(result, buffer, 32);
+    for (int i = 0; i < 31; i++) {
+        sha256_begin(&sha);
+        sha256_hash(ipad, 64, &sha);
+        sha256_hash(buffer, 32, &sha);
+        sha256_end(buffer, &sha);
+        sha256_begin(&sha);
+        sha256_hash(opad, 64, &sha);
+        sha256_hash(buffer, 32, &sha);
+        sha256_end(buffer, &sha);
+        for (int i = 0; i < 8; i++) {
+            result[i] ^= buffer[i];
+        }
+    }
+
+    return memcmp(result, &chunk_id, 8) == 0;
+}
 
 BundleList* group_by_bundles(ChunkList* chunks)
 {
