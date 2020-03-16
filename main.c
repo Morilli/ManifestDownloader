@@ -138,7 +138,6 @@ void download_files(struct download_args* args)
     #endif
 
     pthread_t tid[amount_of_threads];
-
     int threads_created = 0;
     bool do_read = true;
 
@@ -215,7 +214,6 @@ void download_files(struct download_args* args)
             continue;
         }
 
-
         FILE* output_file;
         if (fixup) {
             printf("Fixing up file %s...\n", to_download.name);
@@ -238,14 +236,12 @@ void download_files(struct download_args* args)
 
         fseeko(output_file, to_download.file_size, SEEK_SET);
         putc(0, output_file);
-        // rewind(output_file);
         pthread_mutex_t* file_lock = malloc(sizeof(pthread_mutex_t));
         pthread_mutex_init(file_lock, NULL);
         BundleList* unique_bundles = group_by_bundles(fixup ? &chunks_to_download : &to_download.chunks);
         if (fixup) {
             free(chunks_to_download.objects);
         }
-        printf("amount of bundles to download: %d\n", unique_bundles->length);
         uint32_t* index = malloc(sizeof(uint32_t));
         *index = 0;
         int* threads_visited = malloc(sizeof(int));
@@ -277,7 +273,6 @@ void download_files(struct download_args* args)
         }
         if (threads_created == amount_of_threads && current_index < unique_bundles->length) {
             while (1) {
-                printf("entered this infinite loop.\n");
                 if (!do_read) {
                     do_read = true;
                 } else {
