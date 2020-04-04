@@ -10,6 +10,8 @@ extern "C" {
 
 #ifdef _WIN32
     #define mkdir(path, mode) mkdir(path)
+    #define flockfile(file) _lock_file(file)
+    #define funlockfile(file) _unlock_file(file)
 #endif
 
 char* lower(const char* string);

@@ -2,10 +2,10 @@ CC := gcc
 CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto# -DDEBUG
 LDFLAGS := -l:libzstd.a
 
-all: LDFLAGS := $(LDFLAGS) -pthread
+all: LDFLAGS := $(LDFLAGS) -pthread pcre2/libpcre2_linux.a
 all: ManifestDownloader
 
-mingw: LDFLAGS := $(LDFLAGS) -static -lWs2_32
+mingw: LDFLAGS := $(LDFLAGS) -static -lWs2_32 pcre2/libpcre2_mingw.a
 mingw: CFLAGS := $(CFLAGS) -D__USE_MINGW_ANSI_STDIO
 mingw: ManifestDownloader.exe
 

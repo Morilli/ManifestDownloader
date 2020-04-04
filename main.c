@@ -21,6 +21,10 @@
 #include "defs.h"
 #include "rman.h"
 
+#define PCRE2_STATIC
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include "pcre2/pcre2.h"
+
 #include <zstd.h>
 
 int amount_of_threads = 1;
@@ -52,6 +56,7 @@ struct variable_bundle_args {
 void cleanup_variable_bundle_args(struct variable_bundle_args* args)
 {
     fseeko(args->output_file, 0, SEEK_END);
+    fflush(args->output_file);
     assert(ftruncate(fileno(args->output_file), ftello(args->output_file) - 1) == 0);
     fclose(args->output_file);
     pthread_mutex_destroy(args->file_lock);
@@ -156,6 +161,7 @@ void download_files(struct download_args* args)
                 continue;
             } else {
                 fixup = true;
+                flockfile(stdout);
                 printf("Verifying file %s...\r", to_download.name);
                 fflush(stdout);
                 initialize_list(&chunks_to_download);
@@ -195,9 +201,11 @@ void download_files(struct download_args* args)
                     printf("File %s is correct. \n", to_download.name);
                     free(file_output_path);
                     free(chunks_to_download.objects);
+                    funlockfile(stdout);
                     continue;
                 } else verify_failed: {
                     printf("File %s is incorrect.\n", to_download.name);
+                    funlockfile(stdout);
                     if (args->verify_only) {
                         free(file_output_path);
                         free(chunks_to_download.objects);
@@ -278,7 +286,7 @@ void download_files(struct download_args* args)
                 } else {
                     assert(read(pipe_from_downloader[0], &(uint8_t) {0}, 1) == 1);
                 }
-                if (*index >= unique_bundles->length || (*index == unique_bundles->length - 1 && unique_bundles->length != 1)) {
+                if (amount_of_threads == 1 || *index >= unique_bundles->length || (*index == unique_bundles->length - 1 && unique_bundles->length != 1)) {
                     do_read = false;
                     break;
                 }
@@ -322,6 +330,7 @@ void print_help()
     printf("  [-t|--threads] amount\n    Specify amount of download-threads. Default is 1.\n\n");
     printf("  [-o|--output] path\n    Specify output path. Default is \"output\".\n\n");
     printf("  [-f|--filter] filter\n    Download only files whose full name matches \"filter\".\n\n");
+    printf("  [-u|--unfilter] unfilter\n    Download only files whose full name does not match \"unfilter\".\n\n    Note: Both -f and -u options use case-independent regex-matching.\n\n");
     printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languaes to download.\n    Will ONLY download files that match any of these languages.\n\n");
     printf("  [--no-langs]\n    Will ONLY download language-neutral files, aka no locale-specific ones.\n\n");
     printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
@@ -357,6 +366,7 @@ int main(int argc, char* argv[])
     char* outputPath = "output";
     bundle_base = "https://lol.dyn.riotcdn.net/channels/public/bundles";
     char* filter = "";
+    char* unfilter = "";
     char* langs[65];
     bool download_locales = true;
     int langs_length = 0;
@@ -382,7 +392,12 @@ int main(int argc, char* argv[])
         } else if (strcmp(*arg, "-f") == 0 || strcmp(*arg, "--filter") == 0) {
             if (*(arg + 1)) {
                 arg++;
-                filter = lower_inplace(*arg);
+                filter = *arg;
+            }
+        } else if (strcmp(*arg, "-u") == 0 || strcmp(*arg, "--unfilter") == 0) {
+            if (*(arg + 1)) {
+                arg++;
+                unfilter = *arg;
             }
         } else if (strcmp(*arg, "-l") == 0 || strcmp(*arg, "--langs") == 0 || strcmp(*arg, "--languages") == 0) {
             while (*(arg + 1) && **(arg + 1) != '-') {
@@ -439,12 +454,14 @@ int main(int argc, char* argv[])
 
     FileList to_download;
     initialize_list(&to_download);
+    pcre2_code* pattern = pcre2_compile((PCRE2_SPTR) filter, PCRE2_ZERO_TERMINATED, PCRE2_CASELESS, &(int) {0}, &(size_t) {0}, NULL);
+    pcre2_code* antipattern = pcre2_compile((PCRE2_SPTR) unfilter, PCRE2_ZERO_TERMINATED, PCRE2_CASELESS, &(int) {0}, &(size_t) {0}, NULL);
+    pcre2_match_data* match_data = pcre2_match_data_create(1, NULL);
     for (uint32_t i = 0; i < parsed_manifest->files.length; i++) {
         if (!download_locales && parsed_manifest->files.objects[i].languages.length != 0)
             continue;
         bool matches = false;
-        char* name_lower = lower(parsed_manifest->files.objects[i].name);
-        if (strstr(name_lower, filter)) {
+        if (pcre2_match(pattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, 0, match_data, NULL) > 0 && pcre2_match(antipattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, PCRE2_NOTEMPTY, match_data, NULL) < 0) {
             if (!langs[0]) {
                 matches = true;
             } else {
@@ -456,10 +473,12 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        free(name_lower);
         if (matches)
             add_object(&to_download, &parsed_manifest->files.objects[i]);
     }
+    pcre2_match_data_free(match_data);
+    pcre2_code_free(pattern);
+    pcre2_code_free(antipattern);
     vprintf(2, "To download:\n");
     for (uint32_t i = 0; i < to_download.length; i++) {
         vprintf(2, "\"%s\"\n", to_download.objects[i].name);
