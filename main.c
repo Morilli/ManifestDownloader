@@ -96,7 +96,7 @@ void* download_and_write_bundle(void* _args)
             }
             free(args->variable_args);
             assert(write(args->coordinate_pipes[1], &(uint8_t) {0}, 1) == 1);
-            assert(read(args->coordinate_pipes[0], &args->variable_args, sizeof(struct variable_bundle_thread*)) == sizeof(struct variable_bundle_thread*));
+            assert(read(args->coordinate_pipes[0], &args->variable_args, sizeof(struct variable_bundle_args*)) == sizeof(struct variable_bundle_args*));
             visited = false;
             if (!args->variable_args)
                 break;
@@ -278,6 +278,8 @@ void download_files(struct download_args* args)
                 threads_created++;
             }
             pthread_mutex_unlock(index_lock);
+            if (amount_of_threads == 1)
+                continue;
         }
         if (threads_created == amount_of_threads && current_index < unique_bundles->length) {
             while (1) {
@@ -286,7 +288,7 @@ void download_files(struct download_args* args)
                 } else {
                     assert(read(pipe_from_downloader[0], &(uint8_t) {0}, 1) == 1);
                 }
-                if (amount_of_threads == 1 || *index >= unique_bundles->length || (*index == unique_bundles->length - 1 && unique_bundles->length != 1)) {
+                if (amount_of_threads != 1 && (*index >= unique_bundles->length || (*index == unique_bundles->length - 1 && unique_bundles->length != 1))) {
                     do_read = false;
                     break;
                 }
@@ -297,8 +299,8 @@ void download_files(struct download_args* args)
                 new_variable_bundle_args->output_file = output_file;
                 new_variable_bundle_args->file_lock = file_lock;
                 new_variable_bundle_args->to_download = unique_bundles;
-                assert(write(pipe_to_downloader[1], &new_variable_bundle_args, sizeof(struct bundle_thread*)) == sizeof(struct bundle_thread*));
-                if (unique_bundles->length == 1)
+                assert(write(pipe_to_downloader[1], &new_variable_bundle_args, sizeof(struct variable_bundle_args*)) == sizeof(struct variable_bundle_args*));
+                if (amount_of_threads == 1 || unique_bundles->length == 1)
                     break;
             }
         }
