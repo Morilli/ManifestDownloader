@@ -430,6 +430,7 @@ int main(int argc, char* argv[])
     vprintf(1, "amount of threads: %d\n", amount_of_threads);
     vprintf(1, "base bundle download path: %s\n", bundle_base);
     vprintf(1, "Filter: \"%s\"\n", filter);
+    vprintf(1, "Unfilter: \"%s\"\n", unfilter);
     for (int i = 0; langs[i]; i++) {
         vprintf(1, "langs[%d]: %s\n", i, langs[i]);
     }
@@ -481,9 +482,13 @@ int main(int argc, char* argv[])
     pcre2_match_data_free(match_data);
     pcre2_code_free(pattern);
     pcre2_code_free(antipattern);
-    vprintf(2, "To download:\n");
-    for (uint32_t i = 0; i < to_download.length; i++) {
-        vprintf(2, "\"%s\"\n", to_download.objects[i].name);
+    if (!verify_only) {
+        vprintf(2, "To download:\n");
+        for (uint32_t i = 0; i < to_download.length; i++) {
+            vprintf(2, "\"%s\"\n", to_download.objects[i].name);
+        }
+        if (existing_only)
+            vprintf(2, "Note: Non-existent files will be skipped.\n");
     }
 
     struct download_args download_args = {
