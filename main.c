@@ -16,9 +16,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "defs.h"
+int VERBOSE;
 #include "general_utils.h"
 #include "socket_utils.h"
-#include "defs.h"
 #include "rman.h"
 
 #define PCRE2_STATIC

@@ -270,8 +270,6 @@ int parse_body(Manifest* manifest, uint8_t* body)
             file_offset += chunk->uncompressed_size;
         }
         add_object(&manifest->files, &new_file);
-
-        dprintf("final file name: \"%s\"\n", new_file.name);
     }
 
     for (uint32_t i = 0; i < file_entries.length; i++) {

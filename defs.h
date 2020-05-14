@@ -5,7 +5,7 @@
 
 #include "general_utils.h"
 
-int VERBOSE;
+extern int VERBOSE;
 
 typedef LIST(uint8_t) uint8_list;
 typedef LIST(uint16_t) uint16_list;
