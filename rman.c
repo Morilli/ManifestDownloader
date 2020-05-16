@@ -120,46 +120,36 @@ char* jump_unpack_string(uint8_t* offset_position)
 
 int parse_body(Manifest* manifest, uint8_t* body)
 {
-    uint32_t offsetsOffset = 4 + *(uint32_t*) body;
-    uint32_t offsets[6] = {0};
-    for (int i = 0; i < 6; i++) {
-        offsets[i] = offsetsOffset + 4*i + *(uint32_t*) (body + offsetsOffset + 4*i);
-    }
-
-    uint32_t count;
-    uint32_t offset;
+    uint8_t* root_object = object_of(body);
+    VTable* root_vtable = VTable_of(root_object);
 
     // bundles (and their chunks)
-    count = *(uint32_t*) (body + offsets[0]);
-    initialize_list_size(&manifest->bundles, count);
-    offset = offsets[0] + 4;
+    OffsetTable* bundle_offsets = object_of(&root_object[root_vtable->offsets[0]]);
+    initialize_list_size(&manifest->bundles, bundle_offsets->count);
     uint32_t total_chunks = 0;
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t bundle_offset = offset + *(uint32_t*) (body + offset) + 4;
-        int header_length = *(int32_t*) (body + bundle_offset);
+    for (uint32_t i = 0; i < bundle_offsets->count; i++) {
+        uint8_t* bundle_object = object_of(&bundle_offsets->offsets[i]);
+        VTable* bundle_vtable = VTable_of(bundle_object);
         Bundle* new_bundle = malloc(sizeof(Bundle));
-        new_bundle->bundle_id = *(uint64_t*) (body + bundle_offset + 4);
-        bundle_offset += header_length;
+        new_bundle->bundle_id = *(uint64_t*) &bundle_object[bundle_vtable->offsets[0]];
 
-        uint32_t chunk_amount = *(uint32_t*) (body + bundle_offset);
-        initialize_list_size(&new_bundle->chunks, chunk_amount);
-        for (uint32_t i = 0; i < chunk_amount; i++) {
-            uint32_t chunk_offset = bundle_offset + 4*i + *(uint32_t*) (body + bundle_offset + 4 + 4*i) + 4;
-            VTable* chunk_vtable = (VTable*) (body + chunk_offset - *(int32_t*) (body + chunk_offset));
-            chunk_offset += 4;
+        OffsetTable* chunk_offsets = object_of(&bundle_object[bundle_vtable->offsets[1]]);
+        initialize_list_size(&new_bundle->chunks, chunk_offsets->count);
+        for (uint32_t i = 0; i < chunk_offsets->count; i++) {
+            uint8_t* chunk_object = object_of(&chunk_offsets->offsets[i]);
+            VTable* chunk_vtable = VTable_of(chunk_object);
 
             Chunk new_chunk = {
-                .compressed_size = *(uint32_t*) (body + chunk_offset),
-                .uncompressed_size = *(uint32_t*) (body + chunk_offset + 4),
-                .chunk_id = *(uint64_t*) (body + chunk_offset + 8),
+                .compressed_size = *(uint32_t*) &chunk_object[chunk_vtable->offsets[1]],
+                .uncompressed_size = *(uint32_t*) &chunk_object[chunk_vtable->offsets[2]],
+                .chunk_id = *(uint64_t*) &chunk_object[chunk_vtable->offsets[0]],
                 .bundle_offset = new_bundle->chunks.length == 0 ? 0 : new_bundle->chunks.objects[new_bundle->chunks.length - 1].bundle_offset + new_bundle->chunks.objects[new_bundle->chunks.length - 1].compressed_size,
                 .bundle = new_bundle
             };
             add_object(&new_bundle->chunks, &new_chunk);
         }
         add_object(&manifest->bundles, new_bundle);
-        total_chunks += chunk_amount;
-        offset += 4;
+        total_chunks += chunk_offsets->count;
     }
     initialize_list_size(&manifest->chunks, total_chunks);
     for (uint32_t i = 0; i < manifest->bundles.length; i++) {
@@ -168,37 +158,35 @@ int parse_body(Manifest* manifest, uint8_t* body)
     sort_list(&manifest->chunks, chunk_id);
 
     // languages
-    count = *(uint32_t*) (body + offsets[1]);
-    initialize_list_size(&manifest->languages, count);
-    offset = offsets[1] + 4;
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t language_offset = offset + *(uint32_t*) (body + offset) + 4;
-        Language new_language = {.language_id = body[language_offset + 3], .name = jump_unpack_string(body + language_offset + 4)};
-        add_object_s(&manifest->languages, &new_language, language_id);
+    OffsetTable* language_offsets = object_of(&root_object[root_vtable->offsets[1]]);
+    initialize_list_size(&manifest->languages, language_offsets->count);
+    for (uint32_t i = 0; i < language_offsets->count; i++) {
+        uint8_t* language_object = object_of(&language_offsets->offsets[i]);
+        VTable* language_vtable = VTable_of(language_object);
 
-        offset += 4;
+        Language new_language = {.language_id = language_object[language_vtable->offsets[0]], .name = jump_unpack_string(&language_object[language_vtable->offsets[1]])};
+        add_object_s(&manifest->languages, &new_language, language_id);
     }
 
     // file entries
     FileEntryList file_entries;
-    count = *(uint32_t*) (body + offsets[2]);
-    initialize_list_size(&file_entries, count);
-    offset = offsets[2] + 4;
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t file_entry_offset = offset + *(uint32_t*) (body + offset);
-        VTable* file_entry_vtable = (VTable*) (body + file_entry_offset - *(int32_t*) (body + file_entry_offset));
+    OffsetTable* file_entry_offsets = object_of(&root_object[root_vtable->offsets[2]]);
+    initialize_list_size(&file_entries, file_entry_offsets->count);
+    for (uint32_t i = 0; i < file_entry_offsets->count; i++) {
+        uint8_t* file_entry_object = object_of(&file_entry_offsets->offsets[i]);
+        VTable* file_entry_vtable = VTable_of(file_entry_object);
 
         FileEntry new_file_entry = {
-            .file_entry_id = *(uint64_t*) (body + file_entry_offset + file_entry_vtable->offsets[0]),
-            .directory_id = file_entry_vtable->offsets[1] ? *(uint64_t*) (body + file_entry_offset + file_entry_vtable->offsets[1]) : 0,
-            .file_size = *(uint32_t*) (body + file_entry_offset + file_entry_vtable->offsets[2]),
-            .name = jump_unpack_string(body + file_entry_offset + file_entry_vtable->offsets[3]),
-            .link = jump_unpack_string(body + file_entry_offset + file_entry_vtable->offsets[9])
+            .file_entry_id = *(uint64_t*) &file_entry_object[file_entry_vtable->offsets[0]],
+            .directory_id = file_entry_vtable->offsets[1] ? *(uint64_t*) &file_entry_object[file_entry_vtable->offsets[1]] : 0,
+            .file_size = *(uint32_t*) &file_entry_object[file_entry_vtable->offsets[2]],
+            .name = jump_unpack_string(&file_entry_object[file_entry_vtable->offsets[3]]),
+            .link = jump_unpack_string(&file_entry_object[file_entry_vtable->offsets[9]])
         };
-        uint8_t* chunks_position = body + file_entry_offset + file_entry_vtable->offsets[7] + *(uint32_t*) (body + file_entry_offset + file_entry_vtable->offsets[7]);
+        uint8_t* chunks_position = object_of(&file_entry_object[file_entry_vtable->offsets[7]]);
         initialize_list_size(&new_file_entry.chunk_ids, *(uint32_t*) chunks_position);
         add_objects(&new_file_entry.chunk_ids, chunks_position + 4, *(uint32_t*) chunks_position);
-        uint64_t language_mask = file_entry_vtable->offsets[4] ? *(uint64_t*) (body + file_entry_offset + file_entry_vtable->offsets[4]) : 0;
+        uint64_t language_mask = file_entry_vtable->offsets[4] ? *(uint64_t*) &file_entry_object[file_entry_vtable->offsets[4]] : 0;
         initialize_list(&new_file_entry.language_ids);
         for (int i = 0; i < 64; i++) {
             if (language_mask & (1ull << i)) {
@@ -206,28 +194,22 @@ int parse_body(Manifest* manifest, uint8_t* body)
             }
         }
         add_object(&file_entries, &new_file_entry);
-
-        offset += 4;
     }
 
     // directories
     DirectoryList directories;
-    count = *(uint32_t*) (body + offsets[3]);
-    initialize_list_size(&directories, count);
-    offset = offsets[3] + 4;
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t directory_offset = offset + *(uint32_t*) (body + offset);
+    OffsetTable* directory_offsets = object_of(&root_object[root_vtable->offsets[3]]);
+    initialize_list_size(&directories, directory_offsets->count);
+    for (uint32_t i = 0; i < directory_offsets->count; i++) {
+        uint8_t* directory_object = object_of(&directory_offsets->offsets[i]);
+        VTable* directory_vtable = VTable_of(directory_object);
 
-        int32_t offsettable_offset = directory_offset - *(int32_t*) (body + directory_offset);
-        uint16_t* directory_offsets = (uint16_t*) (body + offsettable_offset);
         Directory new_directory = {
-            .directory_id = *(uint64_t*) (body + directory_offset + directory_offsets[2]),
-            .parent_id = directory_offsets[3] ? *(uint64_t*) (body + directory_offset + directory_offsets[3]) : 0,
-            .name = jump_unpack_string(body + directory_offset + directory_offsets[4])
+            .directory_id = *(uint64_t*) &directory_object[directory_vtable->offsets[0]],
+            .parent_id = directory_vtable->offsets[1] ? *(uint64_t*) &directory_object[directory_vtable->offsets[1]] : 0,
+            .name = jump_unpack_string(&directory_object[directory_vtable->offsets[2]])
         };
         add_object(&directories, &new_directory);
-
-        offset += 4;
     }
 
     // merge directories and file_entries together to a list of files

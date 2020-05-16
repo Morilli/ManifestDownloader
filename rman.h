@@ -12,6 +12,14 @@ typedef struct vtable {
     uint16_t offsets[];
 } VTable;
 
+#define object_of(position) (void*) ((uint8_t*) (position) + *(uint32_t*) (position))
+#define VTable_of(position) (VTable*) ((uint8_t*) (position) - *(int32_t*) (position))
+
+typedef struct offsettable {
+    uint32_t count;
+    uint32_t offsets[];
+} OffsetTable;
+
 typedef struct chunk {
     uint32_t compressed_size;
     uint32_t uncompressed_size;
