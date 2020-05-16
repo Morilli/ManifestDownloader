@@ -223,6 +223,10 @@ void download_files(struct download_args* args)
             continue;
         }
 
+        if (threads_created == amount_of_threads && do_read) {
+            assert(read(pipe_from_downloader[0], &(uint8_t) {0}, 1) == 1);
+            do_read = false;
+        }
         FILE* output_file;
         if (fixup) {
             printf("Fixing up file %s...\n", to_download.name);

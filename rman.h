@@ -6,6 +6,13 @@
 #include "general_utils.h"
 #include "defs.h"
 
+#define Vector(type) struct __attribute__((packed)) { \
+    uint32_t length; \
+    type objects[]; \
+}
+typedef Vector(char) String;
+typedef Vector(uint32_t) OffsetVector;
+
 typedef struct vtable {
     uint16_t vtable_size;
     uint16_t object_size;
@@ -14,11 +21,6 @@ typedef struct vtable {
 
 #define object_of(position) (void*) ((uint8_t*) (position) + *(uint32_t*) (position))
 #define VTable_of(position) (VTable*) ((uint8_t*) (position) - *(int32_t*) (position))
-
-typedef struct offsettable {
-    uint32_t count;
-    uint32_t offsets[];
-} OffsetTable;
 
 typedef struct chunk {
     uint32_t compressed_size;
@@ -49,15 +51,15 @@ typedef struct file_entry {
     uint64_t directory_id;
     uint32_t file_size;
     uint8_list language_ids;
-    uint64_list chunk_ids;
-    char* name;
-    char* link;
+    Vector(uint64_t)* chunk_ids;
+    String* name;
+    String* link;
 } FileEntry;
 
 typedef struct directory {
     uint64_t directory_id;
     uint64_t parent_id;
-    char* name;
+    String* name;
 } Directory;
 
 typedef struct file {
@@ -76,7 +78,6 @@ struct manifest {
     uint64_t manifest_id;
     ChunkList chunks;
     BundleList bundles;
-    // uint8_t language_ids[64];
     LanguageList languages;
     FileList files;
 };

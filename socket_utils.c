@@ -24,9 +24,10 @@
 SOCKET __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port)
 {
     struct addrinfo* addrinfos;
-    if (getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM}, &addrinfos) != 0) {
+    int error;
+    if ( (error = getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM}, &addrinfos)) != 0) {
         eprintf("Error: getaddrinfo failed.\n");
-        eprintf("error code: %d\n", getaddrinfo(ip, port, &(struct addrinfo) {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM}, &addrinfos));
+        eprintf("error string: \"%s\"\n", gai_strerror(error));
         exit(EXIT_FAILURE);
     }
 
