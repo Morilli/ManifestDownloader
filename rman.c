@@ -175,9 +175,9 @@ int parse_body(Manifest* manifest, uint8_t* body)
             .directory_id = file_entry_vtable->offsets[1] ? *(uint64_t*) &file_entry_object[file_entry_vtable->offsets[1]] : 0,
             .file_size = *(uint32_t*) &file_entry_object[file_entry_vtable->offsets[2]],
             .name = object_of(&file_entry_object[file_entry_vtable->offsets[3]]),
-            .link = object_of(&file_entry_object[file_entry_vtable->offsets[9]])
+            .link = object_of(&file_entry_object[file_entry_vtable->offsets[9]]),
+            .chunk_ids = object_of(&file_entry_object[file_entry_vtable->offsets[7]])
         };
-        new_file_entry.chunk_ids = object_of(&file_entry_object[file_entry_vtable->offsets[7]]);
         uint64_t language_mask = file_entry_vtable->offsets[4] ? *(uint64_t*) &file_entry_object[file_entry_vtable->offsets[4]] : 0;
         initialize_list(&new_file_entry.language_ids);
         for (int i = 0; i < 64; i++) {
