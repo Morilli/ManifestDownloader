@@ -26,7 +26,7 @@ typedef struct chunk {
     uint32_t compressed_size;
     uint32_t uncompressed_size;
     uint64_t chunk_id;
-    struct bundle* bundle;
+    uint64_t bundle_id;
     uint32_t bundle_offset;
     uint32_t file_offset;
 } Chunk;

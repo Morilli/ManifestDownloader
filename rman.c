@@ -64,9 +64,9 @@ BundleList* group_by_bundles(ChunkList* chunks)
     initialize_list(unique_bundles);
     for (uint32_t i = 0; i < chunks->length; i++) {
         Bundle* to_find = NULL;
-        find_object_s(unique_bundles, to_find, bundle_id, chunks->objects[i].bundle->bundle_id);
+        find_object_s(unique_bundles, to_find, bundle_id, chunks->objects[i].bundle_id);
         if (!to_find) {
-            Bundle to_add = {.bundle_id = chunks->objects[i].bundle->bundle_id};
+            Bundle to_add = {.bundle_id = chunks->objects[i].bundle_id};
             initialize_list(&to_add.chunks);
             add_object_s(&to_add.chunks, &chunks->objects[i], bundle_offset);
             add_object_s(unique_bundles, &to_add, bundle_id);
@@ -83,7 +83,6 @@ void free_manifest(Manifest* manifest)
     free(manifest->chunks.objects);
 
     for (uint32_t i = 0; i < manifest->bundles.length; i++) {
-        free(manifest->bundles.objects[i].chunks.objects[0].bundle);
         free(manifest->bundles.objects[i].chunks.objects);
     }
     free(manifest->bundles.objects);
@@ -124,11 +123,13 @@ int parse_body(Manifest* manifest, uint8_t* body)
     for (uint32_t i = 0; i < bundle_offsets->length; i++) {
         uint8_t* bundle_object = object_of(&bundle_offsets->objects[i]);
         VTable* bundle_vtable = VTable_of(bundle_object);
-        Bundle* new_bundle = malloc(sizeof(Bundle));
-        new_bundle->bundle_id = *(uint64_t*) &bundle_object[bundle_vtable->offsets[0]];
+
+        Bundle new_bundle = {
+            .bundle_id = *(uint64_t*) &bundle_object[bundle_vtable->offsets[0]]
+        };
 
         OffsetVector* chunk_offsets = object_of(&bundle_object[bundle_vtable->offsets[1]]);
-        initialize_list_size(&new_bundle->chunks, chunk_offsets->length);
+        initialize_list_size(&new_bundle.chunks, chunk_offsets->length);
         for (uint32_t i = 0; i < chunk_offsets->length; i++) {
             uint8_t* chunk_object = object_of(&chunk_offsets->objects[i]);
             VTable* chunk_vtable = VTable_of(chunk_object);
@@ -137,12 +138,12 @@ int parse_body(Manifest* manifest, uint8_t* body)
                 .compressed_size = *(uint32_t*) &chunk_object[chunk_vtable->offsets[1]],
                 .uncompressed_size = *(uint32_t*) &chunk_object[chunk_vtable->offsets[2]],
                 .chunk_id = *(uint64_t*) &chunk_object[chunk_vtable->offsets[0]],
-                .bundle_offset = new_bundle->chunks.length == 0 ? 0 : new_bundle->chunks.objects[new_bundle->chunks.length - 1].bundle_offset + new_bundle->chunks.objects[new_bundle->chunks.length - 1].compressed_size,
-                .bundle = new_bundle
+                .bundle_offset = new_bundle.chunks.length == 0 ? 0 : new_bundle.chunks.objects[new_bundle.chunks.length - 1].bundle_offset + new_bundle.chunks.objects[new_bundle.chunks.length - 1].compressed_size,
+                .bundle_id = new_bundle.bundle_id
             };
-            add_object(&new_bundle->chunks, &new_chunk);
+            add_object(&new_bundle.chunks, &new_chunk);
         }
-        add_object(&manifest->bundles, new_bundle);
+        add_object(&manifest->bundles, &new_bundle);
         total_chunks += chunk_offsets->length;
     }
     initialize_list_size(&manifest->chunks, total_chunks);
@@ -158,7 +159,10 @@ int parse_body(Manifest* manifest, uint8_t* body)
         uint8_t* language_object = object_of(&language_offsets->objects[i]);
         VTable* language_vtable = VTable_of(language_object);
 
-        Language new_language = {.language_id = language_object[language_vtable->offsets[0]], .name = duplicate_string(object_of(&language_object[language_vtable->offsets[1]]))};
+        Language new_language = {
+            .language_id = language_object[language_vtable->offsets[0]],
+            .name = duplicate_string(object_of(&language_object[language_vtable->offsets[1]]))
+        };
         add_object_s(&manifest->languages, &new_language, language_id);
     }
 
