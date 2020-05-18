@@ -138,7 +138,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
                 .compressed_size = *(uint32_t*) &chunk_object[chunk_vtable->offsets[1]],
                 .uncompressed_size = *(uint32_t*) &chunk_object[chunk_vtable->offsets[2]],
                 .chunk_id = *(uint64_t*) &chunk_object[chunk_vtable->offsets[0]],
-                .bundle_offset = new_bundle.chunks.length == 0 ? 0 : new_bundle.chunks.objects[new_bundle.chunks.length - 1].bundle_offset + new_bundle.chunks.objects[new_bundle.chunks.length - 1].compressed_size,
+                .bundle_offset = i == 0 ? 0 : new_bundle.chunks.objects[i - 1].bundle_offset + new_bundle.chunks.objects[i- 1].compressed_size,
                 .bundle_id = new_bundle.bundle_id
             };
             add_object(&new_bundle.chunks, &new_chunk);
