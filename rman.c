@@ -1,13 +1,13 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <inttypes.h>
 #include <assert.h>
-#include <unistd.h>
 
-#include "general_utils.h"
 #include "defs.h"
+#include "list.h"
 #include "rman.h"
 
 #include <zstd.h>
@@ -268,7 +268,7 @@ Manifest* parse_manifest_data(uint8_t* data)
     }
 
     if (data[4] == 2 && data[5] != 0) {
-        vprintf(1, "Info: Untested manifest version %d.%d detected. Everything should still work though.\n", data[4], data[5]);
+        v_printf(1, "Info: Untested manifest version %d.%d detected. Everything should still work though.\n", data[4], data[5]);
     } else if (data[4] != 2) {
         eprintf("Warning: Probably unsupported manifest version %d.%d detected. Will continue, but it might not work.\n", data[4], data[5]);
     }

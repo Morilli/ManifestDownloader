@@ -1,10 +1,10 @@
-#ifndef _RMAN_H
-#define _RMAN_H
+#ifndef RMAN_H
+#define RMAN_H
 
 #include <inttypes.h>
+#include <stdbool.h>
 
-#include "general_utils.h"
-#include "defs.h"
+#include "list.h"
 
 #define Vector(type) struct __attribute__((packed)) { \
     uint32_t length; \
@@ -30,21 +30,19 @@ typedef struct chunk {
     uint32_t bundle_offset;
     uint32_t file_offset;
 } Chunk;
-
 typedef LIST(Chunk) ChunkList;
 
 typedef struct bundle {
     uint64_t bundle_id;
     ChunkList chunks;
 } Bundle;
+typedef LIST(Bundle) BundleList;
 
 typedef struct language {
     uint8_t language_id;
     char* name;
 } Language;
-
-typedef LIST(struct bundle) BundleList;
-typedef LIST(struct language) LanguageList;
+typedef LIST(Language) LanguageList;
 
 typedef struct file_entry {
     uint64_t file_entry_id;
@@ -55,12 +53,14 @@ typedef struct file_entry {
     String* name;
     String* link;
 } FileEntry;
+typedef LIST(FileEntry) FileEntryList;
 
 typedef struct directory {
     uint64_t directory_id;
     uint64_t parent_id;
     String* name;
 } Directory;
+typedef LIST(Directory) DirectoryList;
 
 typedef struct file {
     char* name;
@@ -69,20 +69,15 @@ typedef struct file {
     uint32_t file_size;
     ChunkList chunks;
 } File;
-
-typedef LIST(FileEntry) FileEntryList;
-typedef LIST(Directory) DirectoryList;
 typedef LIST(File) FileList;
 
-struct manifest {
+typedef struct manifest {
     uint64_t manifest_id;
     ChunkList chunks;
     BundleList bundles;
     LanguageList languages;
     FileList files;
-};
-
-typedef struct manifest Manifest;
+} Manifest;
 
 void free_manifest(Manifest* manifest);
 

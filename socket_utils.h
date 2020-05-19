@@ -1,9 +1,13 @@
-#ifndef _socket_utils_H
-#define _socket_utils_H
+#ifndef SOCKET_UTILS_H
+#define SOCKET_UTILS_H
 
 #include <inttypes.h>
+#ifdef _WIN32
+    #include <winsock2.h>
+#endif
+
+#include "defs.h"
 #include "rman.h"
-#include "general_utils.h"
 
 #ifndef _WIN32
     #define closesocket(socket) close(socket)

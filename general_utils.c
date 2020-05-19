@@ -3,16 +3,15 @@
 #else
 #   include <unistd.h>
 #endif
-
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <inttypes.h>
-#include <stdbool.h>
 #include <ctype.h>
 #include <errno.h>
 
 #include "general_utils.h"
+#include "defs.h"
 
 
 char* lower_inplace(char* string)
@@ -44,7 +43,7 @@ int char2int(char input)
         return input - 'A' + 10;
     if (input >= 'a' && input <= 'f')
         return input - 'a' + 10;
-    fprintf(stderr, "Error: Malformed input to \"%s\" (%X).\n", __func__, input);
+    eprintf("Error: Malformed input to \"%s\" (%X).\n", __func__, input);
     return -1;
 }
 
