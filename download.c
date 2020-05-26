@@ -137,7 +137,10 @@ void download_files(struct download_args* args)
                     goto verify_failed;
                 }
                 FILE* input_file = fopen(file_output_path, "rb+");
-                assert(input_file);
+                if (!input_file) {
+                    eprintf("Error: Failed to open \"%s\"\n", file_output_path);
+                    exit(EXIT_FAILURE);
+                }
                 for (uint32_t i = 0; i < to_download.chunks.length; i++) {
                     if (file_info.st_size < to_download.chunks.objects[i].file_offset + to_download.chunks.objects[i].uncompressed_size) {
                         if (args->verify_only) {
