@@ -146,9 +146,12 @@ int main(int argc, char* argv[])
         parsed_manifest = parse_manifest(manifestPath);
     } else {
         v_printf(1, "Info: Assuming \"%s\" is a url.\n", manifestPath);
-        BinaryData* data = download_url(manifestPath);
+        HttpResponse* data = download_url(manifestPath);
         if (!data) {
             eprintf("Make sure the first argument is a valid path to a manifest file or a valid url.\n");
+            exit(EXIT_FAILURE);
+        } else if (data->status_code >= 400) {
+            eprintf("Error: Got a %d response.\n", data->status_code);
             exit(EXIT_FAILURE);
         }
         parsed_manifest = parse_manifest(data->data);

@@ -56,6 +56,9 @@ void* download_and_write_bundle(void* _args)
             (*args->variable_args->threads_visited)++;
             visited = true;
         }
+        if (*args->variable_args->index == args->variable_args->to_download->length) {
+            *args->file_index_finished = max(*args->file_index_finished, args->variable_args->file_index);
+        }
         pthread_mutex_unlock(lock);
 
         if (index >= args->variable_args->to_download->length) {
@@ -113,6 +116,7 @@ void download_files(struct download_args* args)
     pthread_t tid[amount_of_threads];
     int threads_created = 0;
     bool do_read = true;
+    int32_t file_index_finished = -1;
 
     for (uint32_t i = 0; i < args->to_download->length; i++) {
         File to_download = args->to_download->objects[i];
@@ -240,9 +244,11 @@ void download_files(struct download_args* args)
                 new_bundle_args->socket = open_connection_s(host, "80");
                 new_bundle_args->coordinate_pipes[0] = pipe_to_downloader[0];
                 new_bundle_args->coordinate_pipes[1] = pipe_from_downloader[1];
+                new_bundle_args->file_index_finished = &file_index_finished;
                 struct variable_bundle_args* new_variable_args = malloc(sizeof(struct variable_bundle_args));
                 new_variable_args->to_download = unique_bundles;
                 new_variable_args->output_file = output_file;
+                new_variable_args->file_index = i;
                 new_variable_args->file_lock = file_lock;
                 new_variable_args->index = index;
                 new_variable_args->threads_visited = threads_visited;
@@ -263,7 +269,7 @@ void download_files(struct download_args* args)
                 } else {
                     assert(read(pipe_from_downloader[0], &(uint8_t) {0}, 1) == 1);
                 }
-                if (amount_of_threads != 1 && (*index >= unique_bundles->length || (*index == unique_bundles->length - 1 && unique_bundles->length != 1))) {
+                if (file_index_finished == (int32_t) i) {
                     do_read = false;
                     break;
                 }
@@ -272,6 +278,7 @@ void download_files(struct download_args* args)
                 new_variable_bundle_args->threads_visited = threads_visited;
                 new_variable_bundle_args->index_lock = index_lock;
                 new_variable_bundle_args->output_file = output_file;
+                new_variable_bundle_args->file_index = i;
                 new_variable_bundle_args->file_lock = file_lock;
                 new_variable_bundle_args->to_download = unique_bundles;
                 assert(write(pipe_to_downloader[1], &new_variable_bundle_args, sizeof(struct variable_bundle_args*)) == sizeof(struct variable_bundle_args*));

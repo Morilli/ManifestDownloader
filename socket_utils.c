@@ -119,15 +119,19 @@ char* get_host(char* url, int* host_end)
     return host;
 }
 
-BinaryData* receive_http_body(SOCKET* socket, char* request, char* host)
+HttpResponse* receive_http_body(SOCKET* socket, char* request, char* host)
 {
     int retries = 10;
-    send_data(*socket, request, strlen(request));
     char* header_buffer = calloc(8193, 1);
+    send_data(*socket, request, strlen(request));
     int received = recv(*socket, header_buffer, 8192, 0);
+    if (!received) {
+        eprintf("Sent data, but received nothing! Please report this.\n");
+    }
     dprintf("received header:\n\"%s\"\n", header_buffer);
     bool refresh = strstr(header_buffer, "Connection: close\r\n");
-    while (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0 && retries --> 0) {
+    char* status_code = header_buffer + 9;
+    while (strncmp(status_code, "404", 3) == 0 && retries --> 0) {
         dprintf("Got a 404. Will retry %d time%s.\n", retries + 1, retries > 0 ? "s" : "");
         if (refresh) {
             closesocket(*socket);
@@ -137,7 +141,7 @@ BinaryData* receive_http_body(SOCKET* socket, char* request, char* host)
         received = recv(*socket, header_buffer, 8192, 0);
         refresh = strstr(header_buffer, "Connection: close\r\n");
     }
-    if (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0) {
+    if (strncmp(status_code, "404", 3) == 0) {
         dprintf("Retries failed. Will retry one last time with a new connection.\n");
         closesocket(*socket);
         *socket = open_connection_s(host, "80");
@@ -145,17 +149,12 @@ BinaryData* receive_http_body(SOCKET* socket, char* request, char* host)
         received = recv(*socket, header_buffer, 8192, 0);
         refresh = strstr(header_buffer, "Connection: close\r\n");
     }
-    if (strncmp(header_buffer, "HTTP/1.1 404", 12) == 0) {
-        eprintf("Got too many 404s. Can't continue.\n");
-        return NULL;
-    } else if (strncmp(header_buffer, "HTTP/1.1 4", 10) == 0 || strncmp(header_buffer, "HTTP/1.1 5", 10) == 0) {
-        eprintf("Error: Got a %c%c%c response.\n", header_buffer[9], header_buffer[10], header_buffer[11]);
-        return NULL;
-    }
+
     char* start_of_body = strstr(header_buffer, "\r\n\r\n") + 4;
     char* content_length_position = strstr(header_buffer, "Content-Length:");
     int already_received = received - (start_of_body - header_buffer);
-    BinaryData* body = malloc(sizeof(BinaryData));
+    HttpResponse* body = malloc(sizeof(HttpResponse));
+    body->status_code = strtol(status_code, NULL, 10);
     if (content_length_position) {
         body->length = strtoumax(content_length_position + 15, NULL, 10);
         body->data = malloc(body->length);
@@ -213,13 +212,20 @@ uint8_t** download_ranges(SOCKET* socket, char* url, ChunkList* chunks)
     assert(strlen(request_header) < 8192);
     dprintf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
     dprintf("request header:\n\"%s\"\n", request_header);
-    BinaryData* body = receive_http_body(socket, request_header, host);
-    if (!body)
+    HttpResponse* body = receive_http_body(socket, request_header, host);
+    if (body->status_code >= 400) {
+        eprintf("Error: Got a %d response.\n", body->status_code);
         return NULL;
+    }
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));
-    if (chunks->length == 1) {
+    if (body->status_code == 200) { // got the entire bundle instead of just the ranges (note: this is rare and i'm not sure why it happens)
+        for (uint32_t i = 0; i < chunks->length; i++) {
+            ranges[i] = malloc(chunks->objects[i].compressed_size);
+            memcpy(ranges[i], &body->data[chunks->objects[i].bundle_offset], chunks->objects[i].compressed_size);
+        }
+        free(body->data);
+    } else if (chunks->length == 1) {
         ranges[0] = body->data;
-        free(body);
     } else {
         char* pos = (char*) body->data;
         if (range_indices.objects[range_indices.length-1] != 0)
@@ -233,15 +239,15 @@ uint8_t** download_ranges(SOCKET* socket, char* url, ChunkList* chunks)
                 pos += chunks->objects[i].compressed_size;
         }
         free(body->data);
-        free(body);
     }
+    free(body);
     free(range_indices.objects);
     free(host);
 
     return ranges;
 }
 
-BinaryData* download_url(char* url)
+HttpResponse* download_url(char* url)
 {
     int host_end;
     dprintf("file to download: \"%s\"\n", url);
@@ -251,7 +257,7 @@ BinaryData* download_url(char* url)
     SOCKET socket = open_connection_s(host, "80");
     char request_header[1024];
     assert(sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", url + host_end, host) < 1024);
-    BinaryData* data = receive_http_body(&socket, request_header, host);
+    HttpResponse* data = receive_http_body(&socket, request_header, host);
     free(host);
     closesocket(socket);
 

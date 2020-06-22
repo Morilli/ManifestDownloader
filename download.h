@@ -22,11 +22,13 @@ struct download_args {
 struct bundle_args {
     SOCKET socket;
     int coordinate_pipes[2];
+    int32_t* file_index_finished;
     struct variable_bundle_args* variable_args;
 };
 struct variable_bundle_args {
     BundleList* to_download;
     FILE* output_file;
+    int32_t file_index;
     pthread_mutex_t* file_lock;
     uint32_t* index;
     int* threads_visited;
