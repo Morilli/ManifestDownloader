@@ -105,6 +105,8 @@ char* get_host(char* url, int* host_end)
     char* start_of_host = url;
     if (strncmp(url, "https://", 8) == 0) {
         start_of_host += 8;
+    } else if (strncmp(url, "http://", 7) == 0) {
+        start_of_host += 7;
     }
     char* end_of_host = strstr(start_of_host, "/");
     if (!end_of_host)

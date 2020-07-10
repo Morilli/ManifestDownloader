@@ -35,9 +35,9 @@ void print_help()
     printf("  [-o|--output] path\n    Specify output path. Default is \"output\".\n\n");
     printf("  [-f|--filter] filter\n    Download only files whose full name matches \"filter\".\n\n");
     printf("  [-u|--unfilter] unfilter\n    Download only files whose full name does not match \"unfilter\".\n\n    Note: Both -f and -u options use case-independent regex-matching.\n\n");
-    printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languages to download.\n    Will ONLY download files that match any of these languages.\n\n");
+    printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languages to download.\n    Will ONLY download files that match any of these languages.\n    Use [-n|--neutral] in combination with this option to also download language-neutral files.\n\n");
     printf("  [--no-langs]\n    Will ONLY download language-neutral files, aka no locale-specific ones.\n\n");
-    printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
+    printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"http://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
     printf("  [--verify-only]\n    Check files only and print results, but don't update files on disk.\n\n");
     printf("  [--existing-only]\n    Only operate on existing files. Non-existent files are ignored / not created.\n\n");
     printf("  [--skip-existing]\n    By default, all existing files are verified and overwritten if they aren't correct.\n    By specifying this flag existing files will not be checked if their file size matches the expected one.\n\n");
@@ -67,11 +67,12 @@ int main(int argc, char* argv[])
     #endif
 
     char* outputPath = "output";
-    bundle_base = "https://lol.dyn.riotcdn.net/channels/public/bundles";
+    bundle_base = "http://lol.dyn.riotcdn.net/channels/public/bundles";
     char* filter = "";
     char* unfilter = "";
     char* langs[65];
     bool download_locales = true;
+    bool download_neutrals = false;
     int langs_length = 0;
     bool verify_only = false;
     bool skip_existing = false;
@@ -113,6 +114,8 @@ int main(int argc, char* argv[])
                     langs_length++;
                 }
             }
+        } else if (strcmp(*arg, "-n") == 0 || strcmp(*arg, "--neutral") == 0) {
+            download_neutrals = true;
         } else if (strcmp(*arg, "--no-langs") == 0) {
             download_locales = false;
         } else if (strcmp(*arg, "--verify-only") == 0) {
@@ -136,6 +139,7 @@ int main(int argc, char* argv[])
         v_printf(1, "langs[%d]: %s\n", i, langs[i]);
     }
     v_printf(1, "Downloading languages: %s\n", download_locales ? "true" : "false");
+    v_printf(1, "Downloading language-neutral files: %s\n", download_neutrals || langs_length == 0 ? "true" : "false");
 
     char* manifestPath = argv[1];
 
@@ -169,7 +173,7 @@ int main(int argc, char* argv[])
             continue;
         bool matches = false;
         if (pcre2_match(pattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, 0, match_data, NULL) > 0 && pcre2_match(antipattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, PCRE2_NOTEMPTY, match_data, NULL) < 0) {
-            if (!langs[0]) {
+            if (!langs[0] || (download_neutrals && parsed_manifest->files.objects[i].languages.length == 0)) {
                 matches = true;
             } else {
                 for (uint32_t j = 0; j < parsed_manifest->files.objects[i].languages.length; j++) {
