@@ -1,13 +1,13 @@
 CC := gcc
-CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto# -DDEBUG
-LDFLAGS := -l:libzstd.a
+CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto -ffunction-sections -fdata-sections# -DDEBUG
+LDFLAGS := -Wl,--gc-sections
 target := ManifestDownloader
 
 ifeq ($(OS),Windows_NT)
-    LDFLAGS := $(LDFLAGS) -static -lWs2_32 pcre2/libpcre2_mingw.a
+    LDFLAGS := $(LDFLAGS) -static -lWs2_32 pcre2/libpcre2_mingw.a zstd/libzstd_mingw.a
     target := $(target).exe
 else
-    LDFLAGS := $(LDFLAGS) -pthread pcre2/libpcre2_linux.a
+    LDFLAGS := $(LDFLAGS) -pthread pcre2/libpcre2_linux.a zstd/libzstd_linux.a
 endif
 
 all: $(target)
