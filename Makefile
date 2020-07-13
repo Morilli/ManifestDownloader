@@ -11,7 +11,7 @@ else
 endif
 
 all: $(target)
-strip: CFLAGS := $(CFLAGS) -s
+strip: LDFLAGS := $(LDFLAGS) -s
 strip: all
 
 object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha2.o
