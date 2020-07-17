@@ -123,7 +123,6 @@ char* get_host(char* url, int* host_end)
 
 HttpResponse* receive_http_body(SOCKET* socket, char* request, char* host)
 {
-    int retries = 10;
     char* header_buffer = calloc(8193, 1);
     send_data(*socket, request, strlen(request));
     int received = recv(*socket, header_buffer, 8192, 0);
@@ -133,44 +132,54 @@ HttpResponse* receive_http_body(SOCKET* socket, char* request, char* host)
     dprintf("received header:\n\"%s\"\n", header_buffer);
     bool refresh = strstr(header_buffer, "Connection: close\r\n");
     char* status_code = header_buffer + 9;
-    while (strncmp(status_code, "404", 3) == 0 && retries --> 0) {
-        dprintf("Got a 404. Will retry %d time%s.\n", retries + 1, retries > 0 ? "s" : "");
-        if (refresh) {
-            closesocket(*socket);
-            *socket = open_connection_s(host, "80");
-        }
-        send_data(*socket, request, strlen(request));
-        received = recv(*socket, header_buffer, 8192, 0);
-        refresh = strstr(header_buffer, "Connection: close\r\n");
-    }
-    if (strncmp(status_code, "404", 3) == 0) {
-        dprintf("Retries failed. Will retry one last time with a new connection.\n");
-        closesocket(*socket);
-        *socket = open_connection_s(host, "80");
-        send_data(*socket, request, strlen(request));
-        received = recv(*socket, header_buffer, 8192, 0);
-        refresh = strstr(header_buffer, "Connection: close\r\n");
-    }
 
     char* start_of_body = strstr(header_buffer, "\r\n\r\n") + 4;
     char* content_length_position = strstr(header_buffer, "Content-Length:");
     int already_received = received - (start_of_body - header_buffer);
-    HttpResponse* body = malloc(sizeof(HttpResponse));
+    HttpResponse* body = calloc(1, sizeof(HttpResponse));
     body->status_code = strtol(status_code, NULL, 10);
     if (content_length_position) {
         body->length = strtoumax(content_length_position + 15, NULL, 10);
         body->data = malloc(body->length);
         memcpy(body->data, start_of_body, already_received);
-        free(header_buffer);
-        dprintf("already received %d, will try to receive the rest %"PRIu64"\n", already_received, body->length - already_received);
+        dprintf("already received %d, will try to receive the rest %u\n", already_received, body->length - already_received);
         receive_data(*socket, (char*) &body->data[already_received], body->length - already_received);
+    } else if (strstr(header_buffer, "Transfer-Encoding: chunked")) {
+        char* start_of_chunk = start_of_body;
+        char chunk_size_buffer[32] = {0};
+        while (1) {
+            if (!strstr(start_of_chunk, "\r\n")) {
+                start_of_chunk = chunk_size_buffer;
+                strcpy(chunk_size_buffer, start_of_chunk);
+                already_received += recv(*socket, &chunk_size_buffer[already_received], 31 - already_received, 0);
+            }
+            int chunk_size = strtol(start_of_chunk, NULL, 16);
+            if (!chunk_size)
+                break;
+            body->data = realloc(body->data, body->length + chunk_size);
+            char* body_position = strstr(start_of_chunk, "\r\n") + 2;
+            already_received -= body_position - start_of_chunk;
+            if (already_received >= chunk_size + 2) {
+                memcpy(&body->data[body->length], body_position, chunk_size);
+                body->length += chunk_size;
+                already_received -= chunk_size + 2;
+            } else {
+                memcpy(&body->data[body->length], body_position, already_received);
+                body->length += already_received;
+                receive_data(*socket, (char*) &body->data[body->length], chunk_size - already_received);
+                body->length += chunk_size - already_received;
+                receive_data(*socket, (char*) &(uint16_t) {0}, 2);
+                already_received = 0;
+            }
+            start_of_chunk = body_position + chunk_size + 2;
+        }
+        while (!strstr(start_of_chunk + 3, "\r\n")) recv(*socket, (char*) &(uint64_t) {0}, 8, 0);
     } else {
         assert(refresh);
         body->length = already_received;
         uint64_t buffer_size = 8192 + (8192 >> 1);
         body->data = malloc(buffer_size);
         memcpy(body->data, start_of_body, already_received);
-        free(header_buffer);
         while ( (received = recv(*socket, (char*) &body->data[body->length], buffer_size - body->length, 0)) != 0) {
             body->length += received;
             if (body->length == buffer_size) {
@@ -179,6 +188,7 @@ HttpResponse* receive_http_body(SOCKET* socket, char* request, char* host)
             }
         }
     }
+    free(header_buffer);
     if (refresh) {
         closesocket(*socket);
         *socket = open_connection_s(host, "80");
@@ -215,6 +225,7 @@ uint8_t** download_ranges(SOCKET* socket, char* url, ChunkList* chunks)
     dprintf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
     dprintf("request header:\n\"%s\"\n", request_header);
     HttpResponse* body = receive_http_body(socket, request_header, host);
+    dprintf("status code: %d\n", body->status_code);
     if (body->status_code >= 400) {
         eprintf("Error: Got a %d response.\n", body->status_code);
         return NULL;
