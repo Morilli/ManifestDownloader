@@ -149,9 +149,9 @@ HttpResponse* receive_http_body(SOCKET* socket, char* request, char* host)
         char chunk_size_buffer[32] = {0};
         while (1) {
             if (!strstr(start_of_chunk, "\r\n")) {
-                start_of_chunk = chunk_size_buffer;
                 strcpy(chunk_size_buffer, start_of_chunk);
-                already_received += recv(*socket, &chunk_size_buffer[already_received], 31 - already_received, 0);
+                start_of_chunk = chunk_size_buffer;
+                already_received += recv(*socket, &start_of_chunk[already_received], 31 - already_received, 0);
             }
             int chunk_size = strtol(start_of_chunk, NULL, 16);
             if (!chunk_size)
