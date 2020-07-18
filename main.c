@@ -9,7 +9,6 @@
 #include <string.h>
 #include <inttypes.h>
 #include <unistd.h>
-#include <zstd.h>
 
 #include "defs.h"
 #include "download.h"

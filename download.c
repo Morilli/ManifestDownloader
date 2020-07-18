@@ -11,7 +11,7 @@
 #ifdef _WIN32
     #include <fcntl.h>
 #endif
-#include <zstd.h>
+#include "zstd/zstd.h"
 
 #include "download.h"
 #include "defs.h"
@@ -47,6 +47,7 @@ void* download_and_write_bundle(void* _args)
     uint32_t index;
     char* current_bundle_url = malloc(strlen(bundle_base) + 25);
     bool visited = false;
+    ZSTD_DCtx* context = ZSTD_createDCtx();
     while (1) {
         pthread_mutex_t* lock = args->variable_args->index_lock;
         pthread_mutex_lock(lock);
@@ -83,7 +84,7 @@ void* download_and_write_bundle(void* _args)
         }
         for (uint32_t j = 0; j < args->variable_args->to_download->objects[index].chunks.length; j++) {
             uint8_t* to_write = malloc(args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
-            assert(ZSTD_decompress(to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, ranges[j], args->variable_args->to_download->objects[index].chunks.objects[j].compressed_size) == args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
+            assert(ZSTD_decompressDCtx(context, to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, ranges[j], args->variable_args->to_download->objects[index].chunks.objects[j].compressed_size) == args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
 
             pthread_mutex_lock(args->variable_args->file_lock);
             fseek(args->variable_args->output_file, args->variable_args->to_download->objects[index].chunks.objects[j].file_offset, SEEK_SET);
@@ -96,6 +97,7 @@ void* download_and_write_bundle(void* _args)
     }
     closesocket(args->socket);
     free(current_bundle_url);
+    ZSTD_freeDCtx(context);
 
     return _args;
 }

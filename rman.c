@@ -10,7 +10,7 @@
 #include "list.h"
 #include "rman.h"
 
-#include <zstd.h>
+#include "zstd/zstd.h"
 #include "sha/sha2.h"
 
 
