@@ -222,9 +222,7 @@ void download_files(struct download_args* args)
         v_printf(2, "Downloading to %s\n", file_output_path);
         assert(output_file);
         free(file_output_path);
-
-        fseeko(output_file, to_download.file_size, SEEK_SET);
-        putc(0, output_file);
+        ftruncate(fileno(output_file), to_download.file_size + 1);
         pthread_mutex_t* file_lock = malloc(sizeof(pthread_mutex_t));
         pthread_mutex_init(file_lock, NULL);
         BundleList* unique_bundles = group_by_bundles(fixup ? &chunks_to_download : &to_download.chunks);

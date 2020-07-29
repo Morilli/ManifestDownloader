@@ -10,6 +10,9 @@ extern int VERBOSE;
     #define mkdir(path, mode) mkdir(path)
     #define flockfile(file) _lock_file(file)
     #define funlockfile(file) _unlock_file(file)
+    #if defined(_FILE_OFFSET_BITS) && _FILE_OFFSET_BITS == 64
+        #define truncate(path, length) truncate64(path, length)
+    #endif
 #endif
 
 typedef struct {
