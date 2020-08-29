@@ -76,7 +76,7 @@ int send_data(SOCKET socket, char* data, size_t length)
         ssize_t bytes_sent = send(socket, &data[bytes_sent_total], length - bytes_sent_total, 0);
         if (bytes_sent <= 0)
         {
-            eprintf("Error: %s\n", strerror(errno));
+            eprintf("Error: %s\n", bytes_sent == 0 ? "Socket was disconnected unexpectedly." : strerror(errno));
             return -1;
         }
 
@@ -92,7 +92,7 @@ int receive_data(SOCKET socket, char* buffer, size_t length)
     {
         ssize_t received = recv(socket, &buffer[total_received], length - total_received, 0);
         if (received <= 0) {
-            eprintf("Error: %s\n", strerror(errno));
+            eprintf("Error: %s\n", received == 0 ? "Socket was disconnected unexpectedly." : strerror(errno));
             return -1;
         }
         total_received += received;
