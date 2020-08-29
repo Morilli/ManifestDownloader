@@ -165,7 +165,7 @@ HttpResponse* receive_http_body(SOCKET* socket, char* request, char* host)
                 already_received -= chunk_size + 2;
             } else {
                 memcpy(&body->data[body->length], body_position, already_received);
-                receive_data(*socket, (char*) &body->data[body->length], chunk_size - already_received);
+                receive_data(*socket, (char*) &body->data[body->length + already_received], chunk_size - already_received);
                 receive_data(*socket, (char*) &(uint16_t) {0}, 2);
                 start_of_chunk = body_position + already_received;
                 already_received = 0;
