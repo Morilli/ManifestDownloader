@@ -26,10 +26,45 @@ int VERBOSE;
 int amount_of_threads = 1;
 char* bundle_base;
 
+void print_manifest(Manifest* manifest, char* output_path)
+{
+    FILE* output_file = fopen(output_path, "wb");
+    if (!output_file) {
+        eprintf("Error: Failed to access file \"%s\"\n", output_path);
+        exit(EXIT_FAILURE);
+    }
+    fprintf(output_file, "{\n  \"Manifest ID\": \"%016"PRIX64"\",\n", manifest->manifest_id);
+    fprintf(output_file, "  \"languages\": [");
+    for (uint32_t i = 0; i < manifest->languages.length; i++) {
+        if (i) fprintf(output_file, ",\n"); else fprintf(output_file, "\n");
+        fprintf(output_file, "    {\"ID\": %d, \"name\": \"%s\"}", manifest->languages.objects[i].language_id, manifest->languages.objects[i].name);
+    }
+    if (manifest->languages.length) {
+        fprintf(output_file, "\n  ");
+    }
+    fprintf(output_file, "],\n  \"files\": [{\n");
+    for (uint32_t i = 0; i < manifest->files.length; i++) {
+        if (i) fprintf(output_file, ", {\n");
+        fprintf(output_file, "    \"path\": \"%s\",\n", manifest->files.objects[i].name);
+        fprintf(output_file, "    \"file_size\": \"%d bytes\",\n", manifest->files.objects[i].file_size);
+        fprintf(output_file, "    \"languages\": [");
+        for (uint32_t j = 0; j < manifest->files.objects[i].languages.length; j++) {
+            if (j) fprintf(output_file, ", "); else fprintf(output_file, "\n      ");
+            fprintf(output_file, "\"%s\"", manifest->files.objects[i].languages.objects[j].name);
+        }
+        if (manifest->files.objects[i].languages.length) {
+            fprintf(output_file, "\n    ");
+        };
+        fprintf(output_file, "]\n  }");
+    }
+    fprintf(output_file, "]\n}\n");
+}
+
 void print_help()
 {
     printf("ManifestDownloader - a tool to download League of Legends (and other Riot Games games') files.\n\n");
     printf("Options: \n");
+    printf("  [--print-manifest [path]]\n    Just print an overview of the manifest's contents in json form, but don't download anything.\n    Provide an optional path parameter for the output file. Default is \"(manifest_id).json\"\n\n");
     printf("  [-t|--threads] amount\n    Specify amount of download-threads. Default is 1.\n\n");
     printf("  [-o|--output] path\n    Specify output path. Default is \"output\".\n\n");
     printf("  [-f|--filter] filter\n    Download only files whose full name matches \"filter\".\n\n");
@@ -66,6 +101,8 @@ int main(int argc, char* argv[])
     #endif
 
     char* outputPath = "output";
+    bool do_print_manifest = false;
+    char* print_manifest_path = (char[22]) {0};
     bundle_base = "http://lol.dyn.riotcdn.net/channels/public/bundles";
     char* filter = "";
     char* unfilter = "";
@@ -123,6 +160,12 @@ int main(int argc, char* argv[])
             skip_existing = true;
         } else if (strcmp(*arg, "--existing-only") == 0) {
             existing_only = true;
+        } else if (strcmp(*arg, "--print-manifest") == 0) {
+            do_print_manifest = true;
+            if (*(arg + 1) && **(arg + 1) != '-') {
+                arg++;
+                print_manifest_path = *arg;
+            }
         } else if (strcmp(*arg, "-v") == 0) {
             VERBOSE++;
         }
@@ -142,8 +185,6 @@ int main(int argc, char* argv[])
 
     char* manifestPath = argv[1];
 
-    create_dirs(outputPath, true);
-
     Manifest* parsed_manifest;
     if (access(manifestPath, F_OK) == 0) {
         parsed_manifest = parse_manifest(manifestPath);
@@ -160,6 +201,15 @@ int main(int argc, char* argv[])
         parsed_manifest = parse_manifest(data->data);
         free(data->data);
         free(data);
+    }
+
+    if (do_print_manifest) {
+        if (!*print_manifest_path) {
+            sprintf(print_manifest_path, "%016"PRIX64".json", parsed_manifest->manifest_id);
+        }
+        printf("Printing manifest info to \"%s\"...\n", print_manifest_path);
+        print_manifest(parsed_manifest, print_manifest_path);
+        exit(EXIT_SUCCESS);
     }
 
     FileList to_download;
@@ -189,6 +239,7 @@ int main(int argc, char* argv[])
     pcre2_match_data_free(match_data);
     pcre2_code_free(pattern);
     pcre2_code_free(antipattern);
+
     if (!verify_only) {
         v_printf(2, "To download:\n");
         for (uint32_t i = 0; i < to_download.length; i++) {
@@ -198,14 +249,18 @@ int main(int argc, char* argv[])
             v_printf(2, "Note: Non-existent files will be skipped.\n");
     }
 
-    struct download_args download_args = {
-        .to_download = &to_download,
-        .output_path = outputPath,
-        .verify_only = verify_only,
-        .existing_only = existing_only,
-        .skip_existing = skip_existing
-    };
-    download_files(&download_args);
+    if (to_download.length) {
+        create_dirs(outputPath, true);
+        struct download_args download_args = {
+            .to_download = &to_download,
+            .output_path = outputPath,
+            .verify_only = verify_only,
+            .existing_only = existing_only,
+            .skip_existing = skip_existing
+        };
+        download_files(&download_args);
+    }
+
     free(to_download.objects);
 
     free_manifest(parsed_manifest);
