@@ -41,7 +41,7 @@ SOCKET __attribute__((warn_unused_result)) open_connection_s(char* ip, char* por
             continue;
         }
 
-        if (connect(socket_fd, addrinfos->ai_addr, addrinfos->ai_addrlen) != 0) {
+        if (connect(socket_fd, _addrinfo->ai_addr, _addrinfo->ai_addrlen) != 0) {
             fprintf(stderr, "Failed to connect socket.\n");
             exit(EXIT_FAILURE);
         }

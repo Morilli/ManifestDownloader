@@ -261,7 +261,9 @@ int main(int argc, char* argv[])
         download_files(&download_args);
     }
 
+    #ifdef _WIN32
+        WSACleanup();
+    #endif
     free(to_download.objects);
-
     free_manifest(parsed_manifest);
 }

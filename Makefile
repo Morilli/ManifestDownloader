@@ -1,5 +1,8 @@
 CC := gcc
-CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto -ffunction-sections -fdata-sections# -DDEBUG
+ifdef DEBUG
+	_DEBUG := -DDEBUG
+endif
+CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto -ffunction-sections -fdata-sections $(_DEBUG)
 LDFLAGS := -Wl,--gc-sections
 target := ManifestDownloader
 
