@@ -20,6 +20,7 @@
 #define PCRE2_STATIC
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include "pcre2/pcre2.h"
+#include "bearssl/bearssl_ssl.h"
 
 
 int VERBOSE;

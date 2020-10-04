@@ -7,10 +7,10 @@ LDFLAGS := -Wl,--gc-sections
 target := ManifestDownloader
 
 ifeq ($(OS),Windows_NT)
-    LDFLAGS := $(LDFLAGS) -static -lWs2_32 pcre2/libpcre2_mingw.a zstd/libzstd_mingw.a
+    LDFLAGS := $(LDFLAGS) pcre2/libpcre2_mingw.a zstd/libzstd_mingw.a bearssl/libbearssl_mingw.a -lws2_32 -static
     target := $(target).exe
 else
-    LDFLAGS := $(LDFLAGS) -pthread pcre2/libpcre2_linux.a zstd/libzstd_linux.a
+    LDFLAGS := $(LDFLAGS) -pthread pcre2/libpcre2_linux.a zstd/libzstd_linux.a bearssl/libbearssl_linux.a
 endif
 
 all: $(target)

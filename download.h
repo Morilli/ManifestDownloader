@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <pthread.h>
+#include "bearssl/bearssl_ssl.h"
 
 #include "rman.h"
 #include "socket_utils.h"
@@ -20,7 +21,7 @@ struct download_args {
     bool existing_only;
 };
 struct bundle_args {
-    SOCKET socket;
+    struct ssl_data ssl_structs;
     int coordinate_pipes[2];
     int32_t* file_index_finished;
     struct variable_bundle_args* variable_args;
