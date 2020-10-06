@@ -157,7 +157,17 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
     }
     char* header_buffer = calloc(8193, 1);
     write_all(io_context, request, strlen(request));
-    if (is_ssl) br_sslio_flush(io_context);
+    if (is_ssl) {
+        br_sslio_flush(io_context);
+        int last_error = br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng);
+        if (last_error == BR_ERR_X509_NOT_TRUSTED) {
+            eprintf("Error: Digicert certificate not valid for this server.\n");
+            exit(EXIT_FAILURE);
+        } else if (last_error != BR_ERR_OK) {
+            eprintf("bearssl engine reported error no. %d\n", last_error);
+            exit(EXIT_FAILURE);
+        }
+    }
     // assume the entire header can be received in one recv call
     int received = recv_once(io_context, header_buffer, 8192);
     dprintf("received header:\n\"%s\"\n", header_buffer);
@@ -228,7 +238,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
             int last_error = br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng);
             if (last_error != 0) {
                 eprintf("bearssl engine reported error no. %d\n", last_error);
-                exit(1);
+                exit(EXIT_FAILURE);
             }
         }
         else assert(recv(*(SOCKET*) io_context, &(char) {0}, 1, 0) == 0);
