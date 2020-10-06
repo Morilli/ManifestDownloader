@@ -9,7 +9,7 @@
 #include "socket_utils.h"
 
 extern int amount_of_threads;
-extern char* bundle_base;
+extern const char* bundle_base;
 
 struct download_args {
     FileList* to_download;

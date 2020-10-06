@@ -1,3 +1,4 @@
+#include "./bearssl_x509.h"
 
 static const unsigned char TA0_DN[] = {
 	0x30, 0x42, 0x31, 0x12, 0x30, 0x10, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0C,
@@ -5974,7 +5975,7 @@ static const unsigned char TA127_RSA_E[] = {
 	0x01, 0x00, 0x01
 };
 
-static const br_x509_trust_anchor TAs[128] = {
+const br_x509_trust_anchor TAs[128] = {
 	{
 		{ (unsigned char *)TA0_DN, sizeof TA0_DN },
 		BR_X509_TA_CA,
@@ -7384,5 +7385,3 @@ static const br_x509_trust_anchor TAs[128] = {
 		}
 	}
 };
-
-#define TAs_NUM   128

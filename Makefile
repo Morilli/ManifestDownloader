@@ -17,7 +17,7 @@ all: $(target)
 strip: LDFLAGS := $(LDFLAGS) -s
 strip: all
 
-object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha2.o
+object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha2.o bearssl/trust_anchors.o
 
 general_utils.o: general_utils.h defs.h
 rman.o: rman.h defs.h list.h

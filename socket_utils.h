@@ -20,20 +20,27 @@ typedef struct http_response {
     uint8_t* data;
 } HttpResponse;
 
+typedef struct host_port {
+    char* host;
+    const char* port;
+    int path_offset;
+} HostPort;
+
 struct ssl_data {
+    SOCKET socket;
+    HostPort* host_port;
     br_ssl_client_context ssl_client_context;
     uint8_t* io_buffer;
     br_sslio_context ssl_io_context;
     br_x509_minimal_context x509_client_context;
-    SOCKET socket;
 };
 
-SOCKET __attribute__((warn_unused_result)) open_connection_s(char* ip, char* port);
+SOCKET __attribute__((warn_unused_result)) open_connection_s(const char* ip, const char* port);
 SOCKET __attribute__((warn_unused_result)) open_connection(uint32_t ip, uint16_t port);
 
 uint8_t** download_ranges(struct ssl_data* ssl_structs, char* url, ChunkList* chunks);
 
-char* get_host(char* url, int* host_end);
+HostPort* get_host_port(const char* url);
 
 HttpResponse* download_url(char* url);
 

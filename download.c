@@ -13,7 +13,7 @@
 #endif
 #include "zstd/zstd.h"
 #include "bearssl/bearssl_ssl.h"
-#include "bearssl/trust_anchors.c"
+#include "bearssl/trust_anchors.h"
 
 #include "download.h"
 #include "defs.h"
@@ -47,7 +47,9 @@ void* download_and_write_bundle(void* _args)
 {
     struct bundle_args* args = _args;
     uint32_t index;
-    char* current_bundle_url = malloc(strlen(bundle_base) + 25);
+    size_t bundle_base_length = strlen(bundle_base);
+    char current_bundle_url[bundle_base_length + 25];
+    memcpy(current_bundle_url, bundle_base, bundle_base_length);
     bool visited = false;
     ZSTD_DCtx* context = ZSTD_createDCtx();
     while (1) {
@@ -78,7 +80,7 @@ void* download_and_write_bundle(void* _args)
             continue;
         }
 
-        sprintf(current_bundle_url, "%s/%016"PRIX64".bundle", bundle_base, args->variable_args->to_download->objects[index].bundle_id);
+        sprintf(current_bundle_url + bundle_base_length, "/%016"PRIX64".bundle", args->variable_args->to_download->objects[index].bundle_id);
         uint8_t** ranges = download_ranges(&args->ssl_structs, current_bundle_url, &args->variable_args->to_download->objects[index].chunks);
         if (!ranges) {
             eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
@@ -98,8 +100,6 @@ void* download_and_write_bundle(void* _args)
         free(ranges);
     }
     closesocket(args->ssl_structs.socket);
-    free(current_bundle_url);
-    free(args->ssl_structs.io_buffer);
     ZSTD_freeDCtx(context);
 
     return _args;
@@ -107,7 +107,8 @@ void* download_and_write_bundle(void* _args)
 
 void download_files(struct download_args* args)
 {
-    char* host = get_host(bundle_base, NULL);
+    HostPort* host_port = get_host_port(bundle_base);
+    bool is_ssl = strcmp(host_port->port, "443") == 0;
 
     int pipe_to_downloader[2], pipe_from_downloader[2];
     #ifdef _WIN32
@@ -244,12 +245,15 @@ void download_files(struct download_args* args)
             pthread_mutex_lock(index_lock);
             while (threads_created < amount_of_threads && current_index < unique_bundles->length) {
                 struct bundle_args* new_bundle_args = malloc(sizeof(struct bundle_args));
-                br_ssl_client_init_full(&new_bundle_args->ssl_structs.ssl_client_context, &new_bundle_args->ssl_structs.x509_client_context, TAs, TAs_NUM);
-                new_bundle_args->ssl_structs.io_buffer = malloc(BR_SSL_BUFSIZE_BIDI);
-                br_ssl_engine_set_buffer(&new_bundle_args->ssl_structs.ssl_client_context.eng, new_bundle_args->ssl_structs.io_buffer, BR_SSL_BUFSIZE_BIDI, 1);
-                br_ssl_client_reset(&new_bundle_args->ssl_structs.ssl_client_context, host, 0);
-                new_bundle_args->ssl_structs.socket = open_connection_s(host, "443");
-                br_sslio_init(&new_bundle_args->ssl_structs.ssl_io_context, &new_bundle_args->ssl_structs.ssl_client_context.eng, recv_wrapper, &new_bundle_args->ssl_structs.socket, send_wrapper, &new_bundle_args->ssl_structs.socket);
+                new_bundle_args->ssl_structs.socket = open_connection_s(host_port->host, host_port->port);
+                new_bundle_args->ssl_structs.host_port = host_port;
+                if (is_ssl) {
+                    br_ssl_client_init_full(&new_bundle_args->ssl_structs.ssl_client_context, &new_bundle_args->ssl_structs.x509_client_context, TAs, TAs_NUM);
+                    new_bundle_args->ssl_structs.io_buffer = malloc(BR_SSL_BUFSIZE_BIDI);
+                    br_ssl_engine_set_buffer(&new_bundle_args->ssl_structs.ssl_client_context.eng, new_bundle_args->ssl_structs.io_buffer, BR_SSL_BUFSIZE_BIDI, 1);
+                    br_ssl_client_reset(&new_bundle_args->ssl_structs.ssl_client_context, host_port->host, 0);
+                    br_sslio_init(&new_bundle_args->ssl_structs.ssl_io_context, &new_bundle_args->ssl_structs.ssl_client_context.eng, recv_wrapper, &new_bundle_args->ssl_structs.socket, send_wrapper, &new_bundle_args->ssl_structs.socket);
+                }
                 new_bundle_args->coordinate_pipes[0] = pipe_to_downloader[0];
                 new_bundle_args->coordinate_pipes[1] = pipe_from_downloader[1];
                 new_bundle_args->file_index_finished = &file_index_finished;
@@ -306,9 +310,11 @@ void download_files(struct download_args* args)
     for (int i = 0; i < threads_created; i++) {
         void* to_free;
         pthread_join(tid[i], &to_free);
+        if (is_ssl) free(((struct bundle_args*) to_free)->ssl_structs.io_buffer);
         free(to_free);
     }
-    free(host);
+    free(host_port->host);
+    free(host_port);
     close(pipe_from_downloader[0]);
     close(pipe_from_downloader[1]);
     close(pipe_to_downloader[0]);
