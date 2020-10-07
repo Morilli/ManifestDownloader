@@ -1,10 +1,10 @@
 #ifndef SOCKET_UTILS_H
 #define SOCKET_UTILS_H
 
-#include <inttypes.h>
 #ifdef _WIN32
     #include <winsock2.h>
 #endif
+#include <inttypes.h>
 #include "bearssl/bearssl_ssl.h"
 
 #include "rman.h"

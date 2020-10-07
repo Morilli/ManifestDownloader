@@ -1,4 +1,7 @@
 #define _FILE_OFFSET_BITS 64
+#ifdef _WIN32
+    #include <fcntl.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -8,9 +11,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <assert.h>
-#ifdef _WIN32
-    #include <fcntl.h>
-#endif
 #include "zstd/zstd.h"
 #include "bearssl/bearssl_ssl.h"
 #include "bearssl/trust_anchors.h"

@@ -1,4 +1,6 @@
 #define _FILE_OFFSET_BITS 64
+#define PCRE2_STATIC
+#define PCRE2_CODE_UNIT_WIDTH 8
 #ifdef _WIN32
     #include <winsock2.h>
     #include <fcntl.h>
@@ -9,6 +11,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include "pcre2/pcre2.h"
 
 #include "defs.h"
 #include "download.h"
@@ -16,11 +19,6 @@
 #include "list.h"
 #include "socket_utils.h"
 #include "rman.h"
-
-#define PCRE2_STATIC
-#define PCRE2_CODE_UNIT_WIDTH 8
-#include "pcre2/pcre2.h"
-#include "bearssl/bearssl_ssl.h"
 
 
 int VERBOSE;

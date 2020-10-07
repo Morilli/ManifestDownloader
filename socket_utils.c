@@ -22,6 +22,7 @@
 #include "list.h"
 #include "rman.h"
 
+
 SOCKET __attribute__((warn_unused_result)) open_connection_s(const char* ip, const char* port)
 {
     struct addrinfo* addrinfos;

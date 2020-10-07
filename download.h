@@ -3,7 +3,6 @@
 
 #include <stdio.h>
 #include <pthread.h>
-#include "bearssl/bearssl_ssl.h"
 
 #include "rman.h"
 #include "socket_utils.h"
