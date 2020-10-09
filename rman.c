@@ -5,13 +5,12 @@
 #include <string.h>
 #include <inttypes.h>
 #include <assert.h>
+#include "sha/sha2.h"
+#include "zstd/zstd.h"
 
 #include "defs.h"
 #include "list.h"
 #include "rman.h"
-
-#include "zstd/zstd.h"
-#include "sha/sha2.h"
 
 
 bool chunk_valid(BinaryData* chunk, uint64_t chunk_id)

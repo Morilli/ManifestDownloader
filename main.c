@@ -1,4 +1,6 @@
 #define _FILE_OFFSET_BITS 64
+#define PCRE2_STATIC
+#define PCRE2_CODE_UNIT_WIDTH 8
 #ifdef _WIN32
     #include <winsock2.h>
     #include <fcntl.h>
@@ -9,6 +11,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include "pcre2/pcre2.h"
 
 #include "defs.h"
 #include "download.h"
@@ -17,14 +20,10 @@
 #include "socket_utils.h"
 #include "rman.h"
 
-#define PCRE2_STATIC
-#define PCRE2_CODE_UNIT_WIDTH 8
-#include "pcre2/pcre2.h"
-
 
 int VERBOSE;
 int amount_of_threads = 1;
-char* bundle_base;
+const char* bundle_base;
 
 void print_manifest(Manifest* manifest, char* output_path)
 {
@@ -71,7 +70,7 @@ void print_help()
     printf("  [-u|--unfilter] unfilter\n    Download only files whose full name does not match \"unfilter\".\n\n    Note: Both -f and -u options use case-independent regex-matching.\n\n");
     printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languages to download.\n    Will ONLY download files that match any of these languages.\n    Use [-n|--neutral] in combination with this option to also download language-neutral files.\n\n");
     printf("  [--no-langs]\n    Will ONLY download language-neutral files, aka no locale-specific ones.\n\n");
-    printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"http://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
+    printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
     printf("  [--verify-only]\n    Check files only and print results, but don't update files on disk.\n\n");
     printf("  [--existing-only]\n    Only operate on existing files. Non-existent files are ignored / not created.\n\n");
     printf("  [--skip-existing]\n    By default, all existing files are verified and overwritten if they aren't correct.\n    By specifying this flag existing files will not be checked if their file size matches the expected one.\n\n");
@@ -103,7 +102,7 @@ int main(int argc, char* argv[])
     char* outputPath = "output";
     bool do_print_manifest = false;
     char* print_manifest_path = (char[22]) {0};
-    bundle_base = "http://lol.dyn.riotcdn.net/channels/public/bundles";
+    bundle_base = "https://lol.dyn.riotcdn.net/channels/public/bundles";
     char* filter = "";
     char* unfilter = "";
     char* langs[65];

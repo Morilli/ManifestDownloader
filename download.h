@@ -8,7 +8,7 @@
 #include "socket_utils.h"
 
 extern int amount_of_threads;
-extern char* bundle_base;
+extern const char* bundle_base;
 
 struct download_args {
     FileList* to_download;
@@ -20,7 +20,7 @@ struct download_args {
     bool existing_only;
 };
 struct bundle_args {
-    SOCKET socket;
+    struct ssl_data ssl_structs;
     int coordinate_pipes[2];
     int32_t* file_index_finished;
     struct variable_bundle_args* variable_args;
