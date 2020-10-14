@@ -17,7 +17,7 @@ all: $(target)
 strip: LDFLAGS := $(LDFLAGS) -s
 strip: all
 
-object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha2.o bearssl/digicert_high_assurance_ev_root_ca.o
+object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha2.o bearssl/digicert_certificates.o
 
 general_utils.o: general_utils.h defs.h
 rman.o: rman.h defs.h list.h
