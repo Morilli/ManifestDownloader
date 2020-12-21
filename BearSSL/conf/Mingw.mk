@@ -4,7 +4,7 @@
 BUILD = ../libs
 
 # Extension for executable files.
-E =
+E = .exe
 
 # Extension for object files.
 O = .o
@@ -13,7 +13,7 @@ O = .o
 LP = lib
 
 # Extension for library file name.
-L = _linux.a
+L = _mingw.a
 
 # Prefix for DLL file name.
 DP = lib
@@ -38,7 +38,7 @@ MKDIR = mkdir -p
 
 # C compiler and flags.
 CC = cc
-CFLAGS = -W -Wall -Os -fPIC -flto
+CFLAGS = -W -Wall -Wno-unknown-pragmas -Os -fPIC -flto
 CCOUT = -c -o
 
 # Static library building tool.
