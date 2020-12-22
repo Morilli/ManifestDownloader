@@ -14,7 +14,7 @@
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
-#include "bearssl/bearssl_ssl.h"
+#include "bearssl/inc/bearssl_ssl.h"
 #include "bearssl/trust_anchors.h"
 
 #include "socket_utils.h"

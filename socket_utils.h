@@ -5,7 +5,7 @@
     #include <winsock2.h>
 #endif
 #include <inttypes.h>
-#include "bearssl/bearssl_ssl.h"
+#include "bearssl/inc/bearssl_ssl.h"
 
 #include "rman.h"
 

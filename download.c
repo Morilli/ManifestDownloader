@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include "zstd/zstd.h"
-#include "bearssl/bearssl_ssl.h"
+#include "bearssl/inc/bearssl_ssl.h"
 #include "bearssl/trust_anchors.h"
 
 #include "download.h"

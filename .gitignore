@@ -5,3 +5,7 @@
 ManifestDownloader
 ManifestDownloader.exe
 *.o
+
+.prerequisites_built_*
+**/obj/
+**/build/
