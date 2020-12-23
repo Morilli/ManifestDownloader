@@ -7,12 +7,12 @@ target := ManifestDownloader
 
 ifeq ($(OS),Windows_NT)
     SUFFIX := _mingw
-    CONF := mingw
+    CONF := Mingw
     LDFLAGS += -lws2_32 -static
     target := $(target).exe
 else
     SUFFIX := _linux
-    CONF := unix
+    CONF := Unix
     LDFLAGS += -pthread
 endif
 
@@ -36,13 +36,13 @@ ifeq ($(wildcard ./.prerequisites_built$(SUFFIX)),)
 	cmake --build . && \
 	mv libpcre2-8.a ../../libs/libpcre2$(SUFFIX).a
 
-	$(MAKE) -C bearssl CONF=$(CONF)
+	$(MAKE) -C BearSSL CONF=$(CONF)
 
 	test -f ./libs/libzstd$(SUFFIX).a && test -f ./libs/libpcre2$(SUFFIX).a && test -f ./libs/libbearssl$(SUFFIX).a && \
 	touch .prerequisites_built$(SUFFIX)
 endif
 
-object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha2.o bearssl/digicert_certificates.o
+object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha2.o BearSSL/digicert_certificates.o
 lib_files = libs/libzstd$(SUFFIX).a libs/libpcre2$(SUFFIX).a libs/libbearssl$(SUFFIX).a
 
 general_utils.o: general_utils.h defs.h

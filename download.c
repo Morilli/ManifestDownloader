@@ -12,8 +12,8 @@
 #include <unistd.h>
 #include <assert.h>
 #include "zstd/zstd.h"
-#include "bearssl/inc/bearssl_ssl.h"
-#include "bearssl/trust_anchors.h"
+#include "BearSSL/inc/bearssl_ssl.h"
+#include "BearSSL/trust_anchors.h"
 
 #include "download.h"
 #include "defs.h"
