@@ -31,10 +31,10 @@ ifeq ($(wildcard ./.prerequisites_built$(SUFFIX)),)
 	$(MAKE) -C zstd libzstd.a MOREFLAGS="-flto" ZSTD_LIB_MINIFY=1 && \
 	mv zstd/libzstd.a libs/libzstd$(SUFFIX).a
 
-	mkdir -p pcre2/build && cd pcre2/build && rm -rf * && \
-	cmake .. -G "$(CMAKE_GENERATOR)" -DPCRE2_BUILD_TESTS=OFF -DPCRE2_BUILD_PCRE2GREP=OFF -DPCRE2_SUPPORT_UNICODE=OFF -DCMAKE_C_FLAGS="-Os" && \
-	cmake --build . && \
-	mv libpcre2-8.a ../../libs/libpcre2$(SUFFIX).a
+	cmake --build pcre2/build > /dev/null 2>&1 || (mkdir -p pcre2/build && rm -rf pcre2/build/* && \
+	cmake -S pcre2 -B pcre2/build -G "$(CMAKE_GENERATOR)" -DPCRE2_BUILD_TESTS=OFF -DPCRE2_BUILD_PCRE2GREP=OFF -DPCRE2_SUPPORT_UNICODE=OFF -DCMAKE_C_FLAGS="-Os" && \
+	cmake --build pcre2/build) && \
+	mv pcre2/build/libpcre2-8.a libs/libpcre2$(SUFFIX).a
 
 	$(MAKE) -C BearSSL CONF=$(CONF)
 
