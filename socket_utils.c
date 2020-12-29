@@ -128,10 +128,9 @@ HostPort* get_host_port(const char* url)
     } else {
         host_port->port = "80";
     }
-    char* host_end = strstr(start_of_host, "/");
+    const char* host_end = strstr(start_of_host, "/");
     if (!host_end) {
-        free(host_port);
-        return NULL;
+        host_end = start_of_host + strlen(start_of_host);
     }
     int host_length = host_end - start_of_host;
     host_port->host = malloc(host_length + 1);
