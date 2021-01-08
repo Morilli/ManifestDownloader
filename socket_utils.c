@@ -40,13 +40,13 @@ SOCKET __attribute__((warn_unused_result)) open_connection_s(const char* ip, con
         //Create socket
         if ((socket_fd = socket(_addrinfo->ai_family, _addrinfo->ai_socktype, _addrinfo->ai_protocol)) == (SOCKET) -1)
         {
-            fprintf(stderr, "WARNING: Failed to create socket!");
+            eprintf("WARNING: Failed to create socket!");
             continue;
         }
 
         if (connect(socket_fd, _addrinfo->ai_addr, _addrinfo->ai_addrlen) != 0) {
-            fprintf(stderr, "Failed to connect socket.\n");
-            exit(EXIT_FAILURE);
+            eprintf("WARNING: Failed to connect socket.\n");
+            continue;
         }
 
         break;
@@ -54,7 +54,7 @@ SOCKET __attribute__((warn_unused_result)) open_connection_s(const char* ip, con
 
     if (_addrinfo == NULL)
     {
-        fprintf(stderr, "ERROR: Failed to get a working connection.\n");
+        eprintf("ERROR: Failed to get a working connection.\n");
         exit(EXIT_FAILURE);
     }
 
