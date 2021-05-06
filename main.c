@@ -215,12 +215,12 @@ int main(int argc, char* argv[])
     initialize_list(&to_download);
     pcre2_code* pattern = pcre2_compile((PCRE2_SPTR) filter, PCRE2_ZERO_TERMINATED, PCRE2_CASELESS, &(int) {0}, &(size_t) {0}, NULL);
     pcre2_code* antipattern = pcre2_compile((PCRE2_SPTR) unfilter, PCRE2_ZERO_TERMINATED, PCRE2_CASELESS, &(int) {0}, &(size_t) {0}, NULL);
-    pcre2_match_data* match_data = pcre2_match_data_create(1, NULL);
+    pcre2_match_data* match_data = pcre2_match_data_create(0, NULL);
     for (uint32_t i = 0; i < parsed_manifest->files.length; i++) {
         if (!download_locales && parsed_manifest->files.objects[i].languages.length != 0)
             continue;
         bool matches = false;
-        if (pcre2_match(pattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, 0, match_data, NULL) > 0 && pcre2_match(antipattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, PCRE2_NOTEMPTY, match_data, NULL) < 0) {
+        if (pcre2_match(pattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, 0, match_data, NULL) == 0 && pcre2_match(antipattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, PCRE2_NOTEMPTY, match_data, NULL) < 0) {
             if (!langs[0] || (download_neutrals && parsed_manifest->files.objects[i].languages.length == 0)) {
                 matches = true;
             } else {
