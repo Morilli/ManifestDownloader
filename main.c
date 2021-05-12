@@ -220,7 +220,7 @@ int main(int argc, char* argv[])
         if (!download_locales && parsed_manifest->files.objects[i].languages.length != 0)
             continue;
         bool matches = false;
-        if (pcre2_match(pattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, 0, match_data, NULL) == 0 && pcre2_match(antipattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, PCRE2_NOTEMPTY, match_data, NULL) < 0) {
+        if (pcre2_match(pattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, 0, match_data, NULL) >= 0 && pcre2_match(antipattern, (PCRE2_SPTR) parsed_manifest->files.objects[i].name, PCRE2_ZERO_TERMINATED, 0, PCRE2_NOTEMPTY, match_data, NULL) < 0) {
             if (!langs[0] || (download_neutrals && parsed_manifest->files.objects[i].languages.length == 0)) {
                 matches = true;
             } else {
