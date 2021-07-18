@@ -155,7 +155,6 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
         recv_once = recv_wrapper;
         recv_all = receive_data;
     }
-    char* header_buffer = calloc(8193, 1);
     write_all(io_context, request, strlen(request));
     if (is_ssl) {
         br_sslio_flush(io_context);
@@ -168,8 +167,13 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
             exit(EXIT_FAILURE);
         }
     }
-    // assume the entire header can be received in one recv call
-    int received = recv_once(io_context, header_buffer, 8192);
+    char header_buffer[8193] = {0};
+    int received = 0;
+    do {
+        int bytes_read = recv_once(io_context, header_buffer + received, 8192 - received);
+        if (bytes_read == -1) return NULL;
+        received += bytes_read;
+    } while (!strstr(header_buffer, "\r\n\r\n"));
     dprintf("received header:\n\"%s\"\n", header_buffer);
     bool refresh = strstr(header_buffer, "Connection: close\r\n");
     char* status_code = header_buffer + 9;
@@ -243,7 +247,6 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
         }
         else assert(recv(*(SOCKET*) io_context, &(char) {0}, 1, 0) == 0);
     }
-    free(header_buffer);
     if (refresh) {
         closesocket(ssl_structs->socket);
         ssl_structs->socket = open_connection_s(ssl_structs->host_port->host, ssl_structs->host_port->port);
@@ -283,8 +286,11 @@ uint8_t** download_ranges(struct ssl_data* ssl_structs, char* url, ChunkList* ch
     dprintf("request header:\n\"%s\"\n", request_header);
     HttpResponse* body = receive_http_body(ssl_structs, request_header);
     dprintf("status code: %d\n", body->status_code);
-    if (body->status_code >= 400) {
-        eprintf("Error: Got a %d response.\n", body->status_code);
+    if (!body || body->status_code >= 400) {
+        if (body)
+            eprintf("Error: Got a %d response.\n", body->status_code);
+        else
+            eprintf("Error: Failed to receive response data.\n");
         return NULL;
     }
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));

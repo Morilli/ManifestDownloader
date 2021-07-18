@@ -109,6 +109,7 @@ void download_files(struct download_args* args)
 {
     HostPort* host_port = get_host_port(bundle_base);
     bool is_ssl = strcmp(host_port->port, "443") == 0;
+    char file_buffer[256*1024];
 
     int pipe_to_downloader[2], pipe_from_downloader[2];
     #ifdef _WIN32
@@ -151,6 +152,7 @@ void download_files(struct download_args* args)
                     eprintf("Error: Failed to open \"%s\"\n", file_output_path);
                     exit(EXIT_FAILURE);
                 }
+                setvbuf(input_file, file_buffer, _IOFBF, 256 * 1024); // notably boosts performance when fully reading large files in my testing
                 for (uint32_t i = 0; i < to_download.chunks.length; i++) {
                     if (file_info.st_size < to_download.chunks.objects[i].file_offset + to_download.chunks.objects[i].uncompressed_size) {
                         if (args->verify_only) {
