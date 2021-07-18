@@ -1,7 +1,7 @@
 ifdef DEBUG
     _DEBUG := -DDEBUG
 endif
-CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto -ffunction-sections -fdata-sections $(_DEBUG)
+CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto $(_DEBUG)
 LDFLAGS := -Wl,--gc-sections
 target := ManifestDownloader
 
@@ -42,7 +42,7 @@ ifeq ($(wildcard ./.prerequisites_built$(SUFFIX)),)
 	touch .prerequisites_built$(SUFFIX)
 endif
 
-object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha2.o BearSSL/digicert_certificates.o
+object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha256.o sha/sha256-x86.o BearSSL/digicert_certificates.o
 lib_files = libs/libzstd$(SUFFIX).a libs/libpcre2$(SUFFIX).a libs/libbearssl$(SUFFIX).a
 
 general_utils.o: general_utils.h defs.h
@@ -50,6 +50,7 @@ rman.o: rman.h defs.h list.h
 socket_utils.o: socket_utils.h defs.h list.h rman.h
 download.o: download.h defs.h general_utils.h list.h rman.h socket_utils.h
 main.o: download.h defs.h general_utils.h list.h rman.h socket_utils.h
+sha/sha256-x86.o: CFLAGS += -O3 -msha -msse4
 
 $(target): .prerequisites_built$(SUFFIX) $(object_files)
 	$(CC) $(CFLAGS) $^ $(lib_files) $(LDFLAGS) -o $@

@@ -12,6 +12,7 @@
 #include <inttypes.h>
 #include <unistd.h>
 #include "pcre2/pcre2.h"
+#include "sha/sha_extension.h"
 
 #include "defs.h"
 #include "download.h"
@@ -98,6 +99,7 @@ int main(int argc, char* argv[])
             return 1;
         }
     #endif
+    hasShaExtension = checkShaExtension();
 
     char* outputPath = "output";
     bool do_print_manifest = false;
