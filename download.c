@@ -91,7 +91,7 @@ void* download_and_write_bundle(void* _args)
             assert(ZSTD_decompressDCtx(context, to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, ranges[j], args->variable_args->to_download->objects[index].chunks.objects[j].compressed_size) == args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
 
             pthread_mutex_lock(args->variable_args->file_lock);
-            fseek(args->variable_args->output_file, args->variable_args->to_download->objects[index].chunks.objects[j].file_offset, SEEK_SET);
+            fseeko(args->variable_args->output_file, args->variable_args->to_download->objects[index].chunks.objects[j].file_offset, SEEK_SET);
             fwrite(to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, 1, args->variable_args->output_file);
             pthread_mutex_unlock(args->variable_args->file_lock);
             free(to_write);
