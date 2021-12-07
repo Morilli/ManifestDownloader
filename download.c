@@ -29,8 +29,6 @@ void cleanup_variable_bundle_args(struct variable_bundle_args* args)
     fflush(args->output_file);
     assert(ftruncate(fileno(args->output_file), ftello(args->output_file) - 1) == 0);
     fclose(args->output_file);
-    pthread_mutex_destroy(args->file_lock);
-    free(args->file_lock);
     free(args->index);
     free(args->threads_visited);
     pthread_mutex_unlock(args->index_lock);
@@ -90,10 +88,10 @@ void* download_and_write_bundle(void* _args)
             uint8_t* to_write = malloc(args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
             assert(ZSTD_decompressDCtx(context, to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, ranges[j], args->variable_args->to_download->objects[index].chunks.objects[j].compressed_size) == args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
 
-            pthread_mutex_lock(args->variable_args->file_lock);
+            flockfile(args->variable_args->output_file);
             fseeko(args->variable_args->output_file, args->variable_args->to_download->objects[index].chunks.objects[j].file_offset, SEEK_SET);
             fwrite(to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, 1, args->variable_args->output_file);
-            pthread_mutex_unlock(args->variable_args->file_lock);
+            funlockfile(args->variable_args->output_file);
             free(to_write);
             free(ranges[j]);
         }
@@ -229,8 +227,6 @@ void download_files(struct download_args* args)
         assert(output_file);
         free(file_output_path);
         assert(ftruncate(fileno(output_file), to_download.file_size + 1) == 0);
-        pthread_mutex_t* file_lock = malloc(sizeof(pthread_mutex_t));
-        pthread_mutex_init(file_lock, NULL);
         BundleList* unique_bundles = group_by_bundles(fixup ? &chunks_to_download : &to_download.chunks);
         if (fixup) {
             free(chunks_to_download.objects);
@@ -263,7 +259,6 @@ void download_files(struct download_args* args)
                 new_variable_args->to_download = unique_bundles;
                 new_variable_args->output_file = output_file;
                 new_variable_args->file_index = i;
-                new_variable_args->file_lock = file_lock;
                 new_variable_args->index = index;
                 new_variable_args->threads_visited = threads_visited;
                 new_variable_args->index_lock = index_lock;
@@ -293,7 +288,6 @@ void download_files(struct download_args* args)
                 new_variable_bundle_args->index_lock = index_lock;
                 new_variable_bundle_args->output_file = output_file;
                 new_variable_bundle_args->file_index = i;
-                new_variable_bundle_args->file_lock = file_lock;
                 new_variable_bundle_args->to_download = unique_bundles;
                 assert(write(pipe_to_downloader[1], &new_variable_bundle_args, sizeof(struct variable_bundle_args*)) == sizeof(struct variable_bundle_args*));
                 if (amount_of_threads == 1 || unique_bundles->length == 1)

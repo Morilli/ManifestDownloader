@@ -29,7 +29,6 @@ struct variable_bundle_args {
     BundleList* to_download;
     FILE* output_file;
     int32_t file_index;
-    pthread_mutex_t* file_lock;
     uint32_t* index;
     int* threads_visited;
     pthread_mutex_t* index_lock;
