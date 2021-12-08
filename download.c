@@ -79,10 +79,19 @@ void* download_and_write_bundle(void* _args)
         }
 
         sprintf(current_bundle_url + bundle_base_length, "/%016"PRIX64".bundle", args->variable_args->to_download->objects[index].bundle_id);
-        uint8_t** ranges = download_ranges(&args->ssl_structs, current_bundle_url, &args->variable_args->to_download->objects[index].chunks);
-        if (!ranges) {
-            eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
-            exit(EXIT_FAILURE);
+        uint8_t** ranges;
+        if (args->filesystem_only) {
+            ranges = get_ranges(current_bundle_url, &args->variable_args->to_download->objects[index].chunks);
+            if (!ranges) {
+                eprintf("Make sure all required bundles exist and are accessable at \"%s\".\n", bundle_base);
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            ranges = download_ranges(&args->ssl_structs, current_bundle_url, &args->variable_args->to_download->objects[index].chunks);
+            if (!ranges) {
+                eprintf("Failed to download. Make sure to use the correct bundle base url (if necessary).\n");
+                exit(EXIT_FAILURE);
+            }
         }
         for (uint32_t j = 0; j < args->variable_args->to_download->objects[index].chunks.length; j++) {
             uint8_t* to_write = malloc(args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
@@ -97,7 +106,8 @@ void* download_and_write_bundle(void* _args)
         }
         free(ranges);
     }
-    closesocket(args->ssl_structs.socket);
+    if (!args->filesystem_only)
+        closesocket(args->ssl_structs.socket);
     ZSTD_freeDCtx(context);
 
     return _args;
@@ -105,6 +115,9 @@ void* download_and_write_bundle(void* _args)
 
 void download_files(struct download_args* args)
 {
+    bool filesystem_only = access(bundle_base, F_OK) == 0;
+    if (filesystem_only)
+        v_printf(1, "Info: Assuming \"%s\" is a path on disk.\n", bundle_base);
     HostPort* host_port = get_host_port(bundle_base);
     bool is_ssl = strcmp(host_port->port, "443") == 0;
     char file_buffer[256*1024];
@@ -219,7 +232,7 @@ void download_files(struct download_args* args)
                 output_file = fopen(file_output_path, "rb+");
             }
         } else {
-            printf("Downloading file %s...\n", to_download.name);
+            printf("%s file %s...\n", filesystem_only ? "Processing" : "Downloading", to_download.name);
             create_dirs(file_output_path, false);
             output_file = fopen(file_output_path, "wb");
         }
@@ -243,15 +256,18 @@ void download_files(struct download_args* args)
             pthread_mutex_lock(index_lock);
             while (threads_created < amount_of_threads && current_index < unique_bundles->length) {
                 struct bundle_args* new_bundle_args = malloc(sizeof(struct bundle_args));
-                new_bundle_args->ssl_structs.socket = open_connection_s(host_port->host, host_port->port);
-                new_bundle_args->ssl_structs.host_port = host_port;
-                if (is_ssl) {
-                    br_ssl_client_init_full(&new_bundle_args->ssl_structs.ssl_client_context, &new_bundle_args->ssl_structs.x509_client_context, TAs, TAs_NUM);
-                    new_bundle_args->ssl_structs.io_buffer = malloc(BR_SSL_BUFSIZE_BIDI);
-                    br_ssl_engine_set_buffer(&new_bundle_args->ssl_structs.ssl_client_context.eng, new_bundle_args->ssl_structs.io_buffer, BR_SSL_BUFSIZE_BIDI, 1);
-                    br_ssl_client_reset(&new_bundle_args->ssl_structs.ssl_client_context, host_port->host, 0);
-                    br_sslio_init(&new_bundle_args->ssl_structs.ssl_io_context, &new_bundle_args->ssl_structs.ssl_client_context.eng, recv_wrapper, &new_bundle_args->ssl_structs.socket, send_wrapper, &new_bundle_args->ssl_structs.socket);
+                if (!filesystem_only) {
+                    new_bundle_args->ssl_structs.socket = open_connection_s(host_port->host, host_port->port);
+                    new_bundle_args->ssl_structs.host_port = host_port;
+                    if (is_ssl) {
+                        br_ssl_client_init_full(&new_bundle_args->ssl_structs.ssl_client_context, &new_bundle_args->ssl_structs.x509_client_context, TAs, TAs_NUM);
+                        new_bundle_args->ssl_structs.io_buffer = malloc(BR_SSL_BUFSIZE_BIDI);
+                        br_ssl_engine_set_buffer(&new_bundle_args->ssl_structs.ssl_client_context.eng, new_bundle_args->ssl_structs.io_buffer, BR_SSL_BUFSIZE_BIDI, 1);
+                        br_ssl_client_reset(&new_bundle_args->ssl_structs.ssl_client_context, host_port->host, 0);
+                        br_sslio_init(&new_bundle_args->ssl_structs.ssl_io_context, &new_bundle_args->ssl_structs.ssl_client_context.eng, recv_wrapper, &new_bundle_args->ssl_structs.socket, send_wrapper, &new_bundle_args->ssl_structs.socket);
+                    }
                 }
+                new_bundle_args->filesystem_only = filesystem_only;
                 new_bundle_args->coordinate_pipes[0] = pipe_to_downloader[0];
                 new_bundle_args->coordinate_pipes[1] = pipe_from_downloader[1];
                 new_bundle_args->file_index_finished = &file_index_finished;

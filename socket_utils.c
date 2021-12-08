@@ -258,6 +258,25 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
     return body;
 }
 
+uint8_t** get_ranges(char* bundle_path, ChunkList* chunks)
+{
+    FILE* bundle_file = fopen(bundle_path, "rb");
+    if (!bundle_file) {
+        eprintf("Error: Failed to open file \"%s\"\n", bundle_path);
+        return NULL;
+    }
+
+    uint8_t** ranges = malloc(chunks->length * sizeof(uint8_t*));
+    for (uint32_t i = 0; i < chunks->length; i++) {
+        fseek(bundle_file, chunks->objects[i].bundle_offset, SEEK_SET);
+        ranges[i] = malloc(chunks->objects[i].compressed_size);
+        assert(fread(ranges[i], chunks->objects[i].compressed_size, 1, bundle_file) == 1);
+    }
+
+    fclose(bundle_file);
+    return ranges;
+}
+
 uint8_t** download_ranges(struct ssl_data* ssl_structs, char* url, ChunkList* chunks)
 {
     char request_header[8192];

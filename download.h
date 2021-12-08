@@ -20,6 +20,7 @@ struct download_args {
     bool existing_only;
 };
 struct bundle_args {
+    bool filesystem_only;
     struct ssl_data ssl_structs;
     int coordinate_pipes[2];
     int32_t* file_index_finished;

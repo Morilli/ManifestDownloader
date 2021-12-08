@@ -71,7 +71,7 @@ void print_help()
     printf("  [-u|--unfilter] unfilter\n    Download only files whose full name does not match \"unfilter\".\n\n    Note: Both -f and -u options use case-independent regex-matching.\n\n");
     printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languages to download.\n    Will ONLY download files that match any of these languages.\n    Use [-n|--neutral] in combination with this option to also download language-neutral files.\n\n");
     printf("  [--no-langs]\n    Will ONLY download language-neutral files, aka no locale-specific ones.\n\n");
-    printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
+    printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Can also be a local filesystem path.\n    Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
     printf("  [--verify-only]\n    Check files only and print results, but don't update files on disk.\n\n");
     printf("  [--existing-only]\n    Only operate on existing files. Non-existent files are ignored / not created.\n\n");
     printf("  [--skip-existing]\n    By default, all existing files are verified and overwritten if they aren't correct.\n    By specifying this flag existing files will not be checked if their file size matches the expected one.\n\n");
