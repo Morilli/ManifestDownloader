@@ -203,6 +203,9 @@ int main(int argc, char* argv[])
         free(data->data);
         free(data);
     }
+    if (!parsed_manifest) {
+        exit(EXIT_FAILURE);
+    }
 
     if (do_print_manifest) {
         if (!*print_manifest_path) {
