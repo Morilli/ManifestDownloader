@@ -60,32 +60,37 @@ void print_manifest(Manifest* manifest, char* output_path)
     fprintf(output_file, "]\n}\n");
 }
 
-void print_help()
+void get_access_and_id_token(const HttpResponse* put_response, char** access_token, char** id_token)
 {
-    printf("ManifestDownloader - a tool to download League of Legends (and other Riot Games games') files.\n\n");
-    printf("Options: \n");
-    printf("  [--print-manifest [path]]\n    Just print an overview of the manifest's contents in json form, but don't download anything.\n    Provide an optional path parameter for the output file. Default is \"(manifest_id).json\"\n\n");
-    printf("  [-t|--threads] amount\n    Specify amount of download-threads. Default is 1.\n\n");
-    printf("  [-o|--output] path\n    Specify output path. Default is \"output\".\n\n");
-    printf("  [-f|--filter] filter\n    Download only files whose full name matches \"filter\".\n\n");
-    printf("  [-u|--unfilter] unfilter\n    Download only files whose full name does not match \"unfilter\".\n\n    Note: Both -f and -u options use case-independent regex-matching.\n\n");
-    printf("  [-l|--langs|--languages] language1 language2 ...\n    Provide a list of languages to download.\n    Will ONLY download files that match any of these languages.\n    Use [-n|--neutral] in combination with this option to also download language-neutral files.\n\n");
-    printf("  [--no-langs]\n    Will ONLY download language-neutral files, aka no locale-specific ones.\n\n");
-    printf("  [-b|--bundle-*]\n    Provide a different base bundle url. Can also be a local filesystem path.\n    Default is \"https://lol.dyn.riotcdn.net/channels/public/bundles\".\n\n");
-    printf("  [--verify-only]\n    Check files only and print results, but don't update files on disk.\n\n");
-    printf("  [--existing-only]\n    Only operate on existing files. Non-existent files are ignored / not created.\n\n");
-    printf("  [--skip-existing]\n    By default, all existing files are verified and overwritten if they aren't correct.\n    By specifying this flag existing files will not be checked if their file size matches the expected one.\n\n");
-    printf("  [-v [-v ...]]\n    Increases verbosity level by one per \"-v\".\n");
+    if (!put_response || !access_token || !id_token) return;
+
+    char* string_data = malloc(put_response->length + 1);
+    memcpy(string_data, put_response->data, put_response->length);
+    string_data[put_response->length] = '\0';
+
+    char* access_token_position = strstr(string_data, "access_token=");
+    if (!access_token_position) return;
+    access_token_position += 13;
+    char* access_token_end = strstr(access_token_position, "&");
+    if (!access_token_end) return;
+    *access_token = calloc(1, access_token_end - access_token_position + 1);
+    memcpy(*access_token, access_token_position, access_token_end - access_token_position);
+
+    char* id_token_position = strstr(string_data, "id_token=");
+    if (!id_token_position) return;
+    id_token_position += 9;
+    char* id_token_end = strstr(id_token_position, "&");
+    if (!id_token_end) return;
+    *id_token = calloc(1, id_token_end - id_token_position + 1);
+    memcpy(*id_token, id_token_position, id_token_end - id_token_position);
+
+    free(string_data);
 }
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2) {
-        eprintf("Missing arguments! Just use the full manifest url or file path as first argument (type --help for more info).\n");
-        exit(EXIT_FAILURE);
-    }
-    if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
-        print_help();
+    if (argc < 3) {
+        eprintf("Syntax: %s \"username\" \"password\"\n", argv[0]);
         exit(EXIT_FAILURE);
     }
     #ifdef _WIN32
@@ -99,6 +104,99 @@ int main(int argc, char* argv[])
             return 1;
         }
     #endif
+
+    const char post_payload[] = "{\"client_id\": \"bacon-client\", \"nonce\": \"none\", \"response_type\": \"token id_token\", \"redirect_uri\": \"http://localhost/redirect\", \"scope\": \"openid ban lol link account\"}";
+    const char* url = "https://auth.riotgames.com/api/v1/authorization";
+    struct ssl_data* ssl_structs = setup_connection(url);
+    HttpResponse* post_response = rest_request(url, post_payload, NULL, ssl_structs, "POST");
+    if (!post_response) {
+        eprintf("Error: Got no post response!\n");
+        return -1;
+    }
+    free(post_response->data);
+    free(post_response);
+
+    // json escaping
+    #define escape_json(string) do { for (char* c = string; *c; c++) { \
+        switch (*c) \
+        { \
+            case '\b': add_objects(&put_payload, "\\\b", 2); break; \
+            case '\t': add_objects(&put_payload, "\\\t", 2); break; \
+            case '\n': add_objects(&put_payload, "\\\n", 2); break; \
+            case '\f': add_objects(&put_payload, "\\\f", 2); break; \
+            case '\r': add_objects(&put_payload, "\\\r", 2); break; \
+            case '\"': add_objects(&put_payload, "\\\"", 2); break; \
+            case '\\': add_objects(&put_payload, "\\\\", 2); break; \
+            default: add_object(&put_payload, c); \
+        } \
+    }} while (0)
+
+    // build the put_request payload from username and password
+    LIST(char) put_payload;
+    initialize_list(&put_payload);
+    add_objects(&put_payload, "{\"type\": \"auth\", \"username\": \"", 30);
+    escape_json(argv[1]);
+    add_objects(&put_payload, "\",\"password\": \"", 15);
+    escape_json(argv[2]);
+    add_objects(&put_payload, "\"}", 3);
+    HttpResponse* put_response = rest_request(url, put_payload.objects, NULL, ssl_structs, "PUT");
+    free(put_payload.objects);
+    if (!put_response) {
+        eprintf("Error: Got no put response!\n");
+        return -1;
+    }
+
+    // char* access_token = NULL;
+    // char* id_token = NULL;
+    // get_access_and_id_token(put_response, &access_token, &id_token);
+    // free(put_response->data);
+    // free(put_response);
+
+    // if (!access_token || !id_token) {
+        // eprintf("Error: Couldn't parse access and id token!\n");
+        // return -1;
+    // }
+    // printf("%s\n%s\n", access_token, id_token); // Output the access token and id token to stdout for it to get read
+    fwrite(put_response->data, put_response->length, 1, stdout);
+
+    free(ssl_structs->host_port->host);
+    free(ssl_structs->host_port);
+    closesocket(ssl_structs->socket);
+    for (uint32_t i = 0; i < ssl_structs->cookies.length; i++) {
+        free(ssl_structs->cookies.objects[i]);
+    }
+    free(ssl_structs->cookies.objects);
+    free(ssl_structs->io_buffer);
+    free(ssl_structs);
+    // free(access_token);
+    // free(id_token);
+    return 0;
+
+    // The following would be necessary if passing back the access and id token would not be enough for python to work again
+
+
+    // char authorization_header[strlen(access_token) + 23];
+    // sprintf(authorization_header, "Authorization: Bearer %s", access_token);
+
+    // char* entitlements_payload = "{\"urn\": \"urn:entitlement:%\"}";
+    // free(ssl_structs->host_port->host);
+    // free(ssl_structs->host_port); // TODO: free the entire ssl_structs here before reassigning it
+    // ssl_structs = setup_connection("https://entitlements.auth.riotgames.com/api/token/v1");
+    // HttpResponse* entitlements_response = rest_request("https://entitlements.auth.riotgames.com/api/token/v1", entitlements_payload, authorization_header, ssl_structs, "POST");
+    // if (!entitlements_response) {
+    //     eprintf("Error: Got no response!\n");
+    //     return -1;
+    // } else {
+    //     fputs("entitlements response: \"", stdout);
+    //     fwrite(entitlements_response->data, entitlements_response->length, 1, stdout);
+    //     puts("\"");
+    // }
+    // free(entitlements_response->data);
+    // free(entitlements_response);
+
+    return 0;
+
+
     hasShaExtension = checkShaExtension();
 
     char* outputPath = "output";

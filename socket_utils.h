@@ -33,17 +33,20 @@ struct ssl_data {
     uint8_t* io_buffer;
     br_sslio_context ssl_io_context;
     br_x509_minimal_context x509_client_context;
+    LIST(char*) cookies; // 🍪
 };
 
 SOCKET __attribute__((warn_unused_result)) open_connection_s(const char* ip, const char* port);
 SOCKET __attribute__((warn_unused_result)) open_connection(uint32_t ip, uint16_t port);
+HostPort* get_host_port(const char* url);
+struct ssl_data* setup_connection(const char* url);
 
 uint8_t** get_ranges(char* path, ChunkList* chunks);
 uint8_t** download_ranges(struct ssl_data* ssl_structs, char* url, ChunkList* chunks);
 
-HostPort* get_host_port(const char* url);
+HttpResponse* rest_request(const char* url, const char* json, const char* extra_headers, struct ssl_data* ssl_structs, const char* method);
 
-HttpResponse* download_url(char* url);
+HttpResponse* download_url(const char* url);
 
 int send_wrapper(void* client_context, const uint8_t* data, size_t length);
 

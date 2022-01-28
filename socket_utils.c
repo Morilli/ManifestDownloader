@@ -7,6 +7,7 @@
 #else
     #include <winsock2.h>
     #include <ws2tcpip.h>
+    #include <shlwapi.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -175,11 +176,43 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
         received += bytes_read;
     } while (!strstr(header_buffer, "\r\n\r\n"));
     dprintf("received header:\n\"%s\"\n", header_buffer);
-    bool refresh = strstr(header_buffer, "Connection: close\r\n");
+    bool refresh = strcasestr(header_buffer, "Connection: close\r\n");
     char* status_code = header_buffer + 9;
 
+    // 🍪
+    char* current_position = header_buffer;
+    char* cookie_start;
+    while ( (cookie_start = strcasestr(current_position, "set-cookie:")) ) {
+        cookie_start += 12;
+
+        char* cookie_end = strstr(cookie_start, ";");
+        cookie_end = min(cookie_end ? cookie_end : (char*) -1, strstr(cookie_start, "\r\n"));
+        char* cookie_string = calloc(1, cookie_end - cookie_start + 1);
+        memcpy(cookie_string, cookie_start, cookie_end - cookie_start);
+        char* cookie_key_end = strstr(cookie_string, "=");
+        int cookie_key_length = cookie_key_end - cookie_string;
+        bool cookie_value_empty = cookie_string[cookie_key_length + 1] == '\0';
+        uint32_t i;
+        for (i = 0; i < ssl_structs->cookies.length; i++) {
+            if (strncmp(ssl_structs->cookies.objects[i], cookie_string, cookie_key_length) == 0) {
+                free(ssl_structs->cookies.objects[i]);
+                if (cookie_value_empty) {
+                    remove_object(&ssl_structs->cookies, i); // remove existing cookie
+                    i--;
+                    free(cookie_string);
+                } else {
+                    ssl_structs->cookies.objects[i] = cookie_string;
+                }
+                break;
+            }
+        }
+        if (i == ssl_structs->cookies.length && !cookie_value_empty) add_object(&ssl_structs->cookies, &cookie_string);
+
+        current_position = cookie_end + 2;
+    }
+
     char* start_of_body = strstr(header_buffer, "\r\n\r\n") + 4;
-    char* content_length_position = strstr(header_buffer, "Content-Length:");
+    char* content_length_position = strcasestr(header_buffer, "Content-Length:");
     int already_received = received - (start_of_body - header_buffer);
     HttpResponse* body = calloc(1, sizeof(HttpResponse));
     body->status_code = strtol(status_code, NULL, 10);
@@ -190,7 +223,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
         memcpy(body->data, start_of_body, already_received);
         dprintf("already received %d, will try to receive the rest %u\n", already_received, body->length - already_received);
         recv_all(io_context, &body->data[already_received], body->length - already_received);
-    } else if (strstr(header_buffer, "Transfer-Encoding: chunked")) {
+    } else if (strcasestr(header_buffer, "Transfer-Encoding: chunked")) {
         // header contained the transfer-encoding: chunked header, which is difficult to handle (no content-length)
         char* start_of_chunk = start_of_body;
         char chunk_size_buffer[32] = {0};
@@ -341,7 +374,55 @@ uint8_t** download_ranges(struct ssl_data* ssl_structs, char* url, ChunkList* ch
     return ranges;
 }
 
-HttpResponse* download_url(char* url)
+struct ssl_data* setup_connection(const char* url)
+{
+    struct ssl_data* ssl_structs = malloc(sizeof(struct ssl_data));
+    ssl_structs->host_port = get_host_port(url);
+    if (!ssl_structs->host_port)
+        return NULL;
+    bool is_ssl = strcmp(ssl_structs->host_port->port, "443") == 0;
+    ssl_structs->socket = open_connection_s(ssl_structs->host_port->host, ssl_structs->host_port->port);
+    if (is_ssl) {
+        ssl_structs->io_buffer = malloc(BR_SSL_BUFSIZE_BIDI);
+        br_ssl_client_init_full(&ssl_structs->ssl_client_context, &ssl_structs->x509_client_context, TAs, TAs_NUM);
+        br_ssl_engine_set_buffer(&ssl_structs->ssl_client_context.eng, ssl_structs->io_buffer, BR_SSL_BUFSIZE_BIDI, 1);
+        br_ssl_client_reset(&ssl_structs->ssl_client_context, ssl_structs->host_port->host, 0);
+        br_sslio_init(&ssl_structs->ssl_io_context, &ssl_structs->ssl_client_context.eng, recv_wrapper, &ssl_structs->socket, send_wrapper, &ssl_structs->socket);
+    }
+    initialize_list(&ssl_structs->cookies);
+
+    return ssl_structs;
+}
+
+HttpResponse* rest_request(const char* url, const char* json, const char* extra_headers, struct ssl_data* ssl_structs, const char* method)
+{
+    LIST(char) cookies;
+    initialize_list(&cookies);
+    for (uint32_t i = 0; i < ssl_structs->cookies.length; i++) {
+        if (i != 0) {
+            add_object(&cookies, ";");
+            add_object(&cookies, " ");
+        }
+        add_objects(&cookies, ssl_structs->cookies.objects[i], strlen(ssl_structs->cookies.objects[i]));
+    }
+    add_object(&cookies, "\0");
+    int request_length = cookies.length + strlen(method) + strlen(ssl_structs->host_port->host) + strlen(url + ssl_structs->host_port->path_offset) + strlen(json) + 116; // space for 11 Content-Length characters
+    if (extra_headers) request_length += strlen(extra_headers);
+    char* request_header = malloc(request_length);
+    sprintf(request_header, "%s %s HTTP/1.1\r\nHost: %s\r\nContent-Length: %"PRId64"\r\nContent-Type: application/json\r\nUser-Agent: FuckRito\r\n", method, url + ssl_structs->host_port->path_offset, ssl_structs->host_port->host, strlen(json));
+    if (extra_headers) sprintf(request_header + strlen(request_header), "%s\r\n", extra_headers);
+    if (cookies.length > 1 /* there is always a \0 byte */) sprintf(request_header + strlen(request_header), "Cookie: %s\r\n", cookies.objects);
+    strcat(request_header, "\r\n");
+    if (json) strcat(request_header, json);
+    // printf("request header: \"%s\"\n", request_header);
+    free(cookies.objects);
+    HttpResponse* data = receive_http_body(ssl_structs, request_header);
+    free(request_header);
+
+    return data;
+}
+
+HttpResponse* download_url(const char* url)
 {
     dprintf("file to download: \"%s\"\n", url);
     struct ssl_data ssl_structs;

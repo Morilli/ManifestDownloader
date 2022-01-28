@@ -7,6 +7,7 @@
 extern int VERBOSE;
 
 #ifdef _WIN32
+    #define strcasestr StrStrI
     #define mkdir(path, mode) mkdir(path)
     #define flockfile(file) _lock_file(file)
     #define funlockfile(file) _unlock_file(file)

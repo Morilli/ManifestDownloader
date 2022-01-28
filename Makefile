@@ -3,7 +3,7 @@ ifdef DEBUG
 endif
 CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto $(_DEBUG)
 LDFLAGS := -Wl,--gc-sections
-target := ManifestDownloader
+target := riot_tokens
 
 ifeq ($(OS),Windows_NT)
     SUFFIX := _mingw
