@@ -7,6 +7,7 @@
 #else
     #include <winsock2.h>
     #include <ws2tcpip.h>
+    #include <shlwapi.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -175,11 +176,11 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
         received += bytes_read;
     } while (!strstr(header_buffer, "\r\n\r\n"));
     dprintf("received header:\n\"%s\"\n", header_buffer);
-    bool refresh = strstr(header_buffer, "Connection: close\r\n");
+    bool refresh = strcasestr(header_buffer, "Connection: close\r\n");
     char* status_code = header_buffer + 9;
 
     char* start_of_body = strstr(header_buffer, "\r\n\r\n") + 4;
-    char* content_length_position = strstr(header_buffer, "Content-Length:");
+    char* content_length_position = strcasestr(header_buffer, "Content-Length:");
     int already_received = received - (start_of_body - header_buffer);
     HttpResponse* body = calloc(1, sizeof(HttpResponse));
     body->status_code = strtol(status_code, NULL, 10);
@@ -190,7 +191,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
         memcpy(body->data, start_of_body, already_received);
         dprintf("already received %d, will try to receive the rest %u\n", already_received, body->length - already_received);
         recv_all(io_context, &body->data[already_received], body->length - already_received);
-    } else if (strstr(header_buffer, "Transfer-Encoding: chunked")) {
+    } else if (strcasestr(header_buffer, "Transfer-Encoding: chunked")) {
         // header contained the transfer-encoding: chunked header, which is difficult to handle (no content-length)
         char* start_of_chunk = start_of_body;
         char chunk_size_buffer[32] = {0};
