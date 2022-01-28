@@ -142,7 +142,7 @@ HostPort* get_host_port(const char* url)
     return host_port;
 }
 
-HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
+HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* request)
 {
     // dynamic function pointers; based on whether ssl functions or normal socket functions should be used
     void* io_context = &ssl_structs->ssl_io_context;
@@ -259,7 +259,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
     return body;
 }
 
-uint8_t** get_ranges(char* bundle_path, ChunkList* chunks)
+uint8_t** get_ranges(const char* bundle_path, const ChunkList* chunks)
 {
     FILE* bundle_file = fopen(bundle_path, "rb");
     if (!bundle_file) {
@@ -278,7 +278,7 @@ uint8_t** get_ranges(char* bundle_path, ChunkList* chunks)
     return ranges;
 }
 
-uint8_t** download_ranges(struct ssl_data* ssl_structs, char* url, ChunkList* chunks)
+uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const ChunkList* chunks)
 {
     char request_header[8192];
     uint32_list range_indices;
@@ -342,7 +342,7 @@ uint8_t** download_ranges(struct ssl_data* ssl_structs, char* url, ChunkList* ch
     return ranges;
 }
 
-HttpResponse* download_url(char* url)
+HttpResponse* download_url(const char* url)
 {
     dprintf("file to download: \"%s\"\n", url);
     struct ssl_data ssl_structs;

@@ -38,12 +38,12 @@ struct ssl_data {
 SOCKET __attribute__((warn_unused_result)) open_connection_s(const char* ip, const char* port);
 SOCKET __attribute__((warn_unused_result)) open_connection(uint32_t ip, uint16_t port);
 
-uint8_t** get_ranges(char* path, ChunkList* chunks);
-uint8_t** download_ranges(struct ssl_data* ssl_structs, char* url, ChunkList* chunks);
+uint8_t** get_ranges(const char* path, const ChunkList* chunks);
+uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const ChunkList* chunks);
 
 HostPort* get_host_port(const char* url);
 
-HttpResponse* download_url(char* url);
+HttpResponse* download_url(const char* url);
 
 int send_wrapper(void* client_context, const uint8_t* data, size_t length);
 
