@@ -161,7 +161,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, char* request)
         br_sslio_flush(io_context);
         int last_error = br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng);
         if (last_error == BR_ERR_X509_NOT_TRUSTED) {
-            eprintf("Error: Digicert certificate not valid for this server.\n");
+            eprintf("Error: No certificate was valid for this server. Please report this.\n");
             exit(EXIT_FAILURE);
         } else if (last_error != BR_ERR_OK) {
             eprintf("bearssl engine reported error no. %d\n", last_error);
