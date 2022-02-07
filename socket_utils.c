@@ -142,6 +142,16 @@ HostPort* get_host_port(const char* url)
     return host_port;
 }
 
+static void refresh_connection(struct ssl_data* ssl_structs, bool is_ssl)
+{
+    closesocket(ssl_structs->socket);
+    ssl_structs->socket = open_connection_s(ssl_structs->host_port->host, ssl_structs->host_port->port);
+    if (is_ssl) {
+        br_ssl_client_reset(&ssl_structs->ssl_client_context, ssl_structs->host_port->host, 1);
+        br_sslio_init(&ssl_structs->ssl_io_context, &ssl_structs->ssl_client_context.eng, recv_wrapper, &ssl_structs->socket, send_wrapper, &ssl_structs->socket);
+    }
+}
+
 HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* request)
 {
     // dynamic function pointers; based on whether ssl functions or normal socket functions should be used
@@ -163,6 +173,10 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         if (last_error == BR_ERR_X509_NOT_TRUSTED) {
             eprintf("Error: No certificate was valid for this server. Please report this.\n");
             exit(EXIT_FAILURE);
+        } else if (last_error == BR_ERR_IO) { // assume socket was closed due to inactivity and try again
+            eprintf("Info: Underlying connection was closed. Trying again...\n");
+            refresh_connection(ssl_structs, is_ssl);
+            return receive_http_body(ssl_structs, request);
         } else if (last_error != BR_ERR_OK) {
             eprintf("bearssl engine reported error no. %d\n", last_error);
             exit(EXIT_FAILURE);
@@ -248,14 +262,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         }
         else assert(recv(*(SOCKET*) io_context, &(char) {0}, 1, 0) == 0);
     }
-    if (refresh) {
-        closesocket(ssl_structs->socket);
-        ssl_structs->socket = open_connection_s(ssl_structs->host_port->host, ssl_structs->host_port->port);
-        if (is_ssl) {
-            br_ssl_client_reset(&ssl_structs->ssl_client_context, ssl_structs->host_port->host, 1);
-            br_sslio_init(&ssl_structs->ssl_io_context, &ssl_structs->ssl_client_context.eng, recv_wrapper, &ssl_structs->socket, send_wrapper, &ssl_structs->socket);
-        }
-    }
+    if (refresh) refresh_connection(ssl_structs, is_ssl);
     return body;
 }
 
