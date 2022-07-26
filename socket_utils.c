@@ -166,6 +166,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         recv_once = recv_wrapper;
         recv_all = receive_data;
     }
+
     write_all(io_context, request, strlen(request));
     if (is_ssl) {
         br_sslio_flush(io_context);
@@ -204,16 +205,18 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         body->data = malloc(body->length);
         memcpy(body->data, start_of_body, already_received);
         dprintf("already received %d, will try to receive the rest %u\n", already_received, body->length - already_received);
-        recv_all(io_context, &body->data[already_received], body->length - already_received);
+        if (recv_all(io_context, &body->data[already_received], body->length - already_received) != 0) return NULL;
     } else if (strcasestr(header_buffer, "Transfer-Encoding: chunked")) {
         // header contained the transfer-encoding: chunked header, which is difficult to handle (no content-length)
         char* start_of_chunk = start_of_body;
         char chunk_size_buffer[32] = {0};
         while (1) {
-            if (!strstr(start_of_chunk, "\r\n")) {
+            while (!strstr(start_of_chunk, "\r\n")) {
                 strcpy(chunk_size_buffer, start_of_chunk);
                 start_of_chunk = chunk_size_buffer;
-                already_received += recv_once(io_context, &start_of_chunk[already_received], 31 - already_received);
+                int received = recv_once(io_context, &start_of_chunk[already_received], 31 - already_received);
+                if (received == -1) return NULL;
+                already_received += received;
             }
             int chunk_size = strtol(start_of_chunk, NULL, 16);
             if (!chunk_size) // chunk_size == 0, last chunk
@@ -227,8 +230,10 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
                 already_received -= chunk_size + 2;
             } else {
                 memcpy(&body->data[body->length], body_position, already_received);
-                recv_all(io_context, &body->data[body->length + already_received], chunk_size - already_received);
-                recv_all(io_context, &(uint16_t) {0}, 2);
+                if (recv_all(io_context, &body->data[body->length + already_received], chunk_size - already_received) != 0 ||
+                    recv_all(io_context, &(uint16_t) {0}, 2) != 0) {
+                    return NULL;
+                }
                 start_of_chunk = body_position + already_received;
                 already_received = 0;
             }
@@ -316,8 +321,13 @@ uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const C
     if (!body || body->status_code >= 400) {
         if (body)
             eprintf("Error: Got a %d response.\n", body->status_code);
-        else
+        else {
             eprintf("Error: Failed to receive response data.\n");
+            if (strcmp(ssl_structs->host_port->port, "443") == 0)
+                eprintf("Bearssl error: %d\n", br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng));
+            else
+                eprintf("Error: %s\n", strerror(errno));
+        }
         return NULL;
     }
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));

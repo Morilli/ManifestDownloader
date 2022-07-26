@@ -95,7 +95,12 @@ void* download_and_write_bundle(void* _args)
         }
         for (uint32_t j = 0; j < args->variable_args->to_download->objects[index].chunks.length; j++) {
             uint8_t* to_write = malloc(args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
-            assert(ZSTD_decompressDCtx(context, to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, ranges[j], args->variable_args->to_download->objects[index].chunks.objects[j].compressed_size) == args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size);
+            size_t decompressedSize = ZSTD_decompressDCtx(context, to_write, args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, ranges[j], args->variable_args->to_download->objects[index].chunks.objects[j].compressed_size);
+            if (decompressedSize != args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size) {
+                eprintf("Error: ZSTD decompressed size doesn't match expected value! Expected %u, got %"PRId64"\n", args->variable_args->to_download->objects[index].chunks.objects[j].uncompressed_size, decompressedSize);
+                eprintf("failing chunk id: %016"PRIx64", failing bundle id: %016"PRIx64"\n", args->variable_args->to_download->objects[index].chunks.objects[j].chunk_id, args->variable_args->to_download->objects[index].chunks.objects[j].bundle_id);
+                exit(EXIT_FAILURE);
+            }
 
             flockfile(args->variable_args->output_file);
             fseeko(args->variable_args->output_file, args->variable_args->to_download->objects[index].chunks.objects[j].file_offset, SEEK_SET);
