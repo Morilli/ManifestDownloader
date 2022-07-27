@@ -167,7 +167,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         recv_all = receive_data;
     }
 
-    write_all(io_context, request, strlen(request));
+    int success = write_all(io_context, request, strlen(request));
     if (is_ssl) {
         br_sslio_flush(io_context);
         int last_error = br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng);
@@ -182,6 +182,10 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
             eprintf("bearssl engine reported error no. %d\n", last_error);
             exit(EXIT_FAILURE);
         }
+    } else if (success == -1) {
+        eprintf("Attempting reconnection...\n");
+        refresh_connection(ssl_structs, is_ssl);
+        return receive_http_body(ssl_structs, request);
     }
     char header_buffer[8193] = {0};
     int received = 0;
