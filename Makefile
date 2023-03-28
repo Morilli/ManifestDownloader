@@ -3,6 +3,10 @@ ifdef DEBUG
 endif
 CFLAGS := -std=gnu18 -g -Wall -Wextra -pedantic -Os -flto $(_DEBUG)
 LDFLAGS := -Wl,--gc-sections
+ifneq ($(findstring clang,$(CC)),)
+    # lld is required with clang to support flto-compiled object files (bitcode)
+	LDFLAGS += -fuse-ld=lld
+endif
 target := ManifestDownloader
 
 ifeq ($(OS),Windows_NT)
@@ -52,7 +56,7 @@ download.o: download.h defs.h general_utils.h list.h rman.h socket_utils.h BearS
 main.o: download.h defs.h general_utils.h list.h rman.h socket_utils.h
 sha/sha256-x86.o: CFLAGS += -O3 -msha -msse4
 
-$(target): .prerequisites_built$(SUFFIX) $(object_files)
+$(target): $(object_files) | .prerequisites_built$(SUFFIX)
 	$(CC) $(CFLAGS) $^ $(lib_files) $(LDFLAGS) -o $@
 
 

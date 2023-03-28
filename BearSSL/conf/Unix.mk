@@ -37,12 +37,12 @@ RM = rm -f
 MKDIR = mkdir -p
 
 # C compiler and flags.
-CC = cc
+# CC = cc
 CFLAGS = -W -Wall -Os -fPIC -flto
 CCOUT = -c -o
 
 # Static library building tool.
-AR = ar
+# AR = ar
 ARFLAGS = -rcs
 AROUT =
 
@@ -52,7 +52,7 @@ LDDLLFLAGS = -shared
 LDDLLOUT = -o
 
 # Static linker.
-LD = cc
+# LD = cc
 LDFLAGS = -Os -flto
 LDOUT = -o
 

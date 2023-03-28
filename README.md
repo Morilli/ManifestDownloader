@@ -8,7 +8,7 @@ If you're wondering where the manifest files come from, [here](https://github.co
 To download an optimized compiled executable, head on over to https://github.com/Morilli/ManifestDownloader/releases and download the most recent release.
 
 ## Building
-To build it yourself, you'll need general C build tools (make, gcc) and additionally cmake to build pcre2 (as I can't be bothered to automate their configure build system).
+To build it yourself, you'll need general C build tools (make, gcc) and additionally cmake to build pcre2 (as I can't be bothered to automate their configure build system). Note that when compiling with clang it may be required to export `AR=llvm-ar` to ensure archive files are read/written correctly.
 Linux systems and msys/mingw should be able to compile perfectly, everything else I don't really know tbh.
 Just run "make" in the project root and the executable should be built automatically.
 
