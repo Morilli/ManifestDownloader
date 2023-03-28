@@ -60,7 +60,7 @@ void print_manifest(Manifest* manifest, char* output_path)
     fprintf(output_file, "]\n}\n");
 }
 
-void print_help()
+void print_help(void)
 {
     printf("ManifestDownloader - a tool to download League of Legends (and other Riot Games games') files.\n\n");
     printf("Options: \n");

@@ -12,7 +12,7 @@
 #include <cpuid.h>
 #include "sha_extension.h"
 
-bool checkShaExtension()
+bool checkShaExtension(void)
 {
     int a, b, c, d;
     __cpuid_count(7, 0, a, b, c, d);

@@ -91,7 +91,7 @@ int recv_wrapper(void* client_context, uint8_t* buffer, size_t length)
     return received;
 }
 
-int send_data(void* socket, const uint8_t* data, size_t length)
+static int send_data(void* socket, const void* data, size_t length)
 {
     int bytes_sent;
     if ( (bytes_sent = send(*(SOCKET*) socket, (const char*) data, length, 0)) <= 0) {
@@ -101,12 +101,12 @@ int send_data(void* socket, const uint8_t* data, size_t length)
     return 0;
 }
 
-int receive_data(void* socket, uint8_t* buffer, size_t length)
+static int receive_data(void* socket, void* buffer, size_t length)
 {
     size_t total_received = 0;
     while (total_received != length)
     {
-        ssize_t received = recv(*(SOCKET*) socket, (char*) &buffer[total_received], length - total_received, 0);
+        ssize_t received = recv(*(SOCKET*) socket, &((char*) buffer)[total_received], length - total_received, 0);
         if (received <= 0) {
             eprintf("Error: %s\n", received == 0 ? "Socket was disconnected unexpectedly." : strerror(errno));
             return -1;
@@ -152,18 +152,23 @@ static void refresh_connection(struct ssl_data* ssl_structs, bool is_ssl)
     }
 }
 
+static int br_sslio_write_all_wrapper(void* cc, const void* src, size_t len) {return br_sslio_write_all(cc, src, len);}
+static int br_sslio_read_wrapper(void* cc, void* dst, size_t len) {return br_sslio_read(cc, dst, len);}
+static int br_sslio_read_all_wrapper(void* cc, void* dst, size_t len) {return br_sslio_read_all(cc, dst, len);}
+static int nossl_recv_wrapper(void* client_context, void* buffer, size_t len) {return recv_wrapper(client_context, buffer, len);}
+
 HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* request)
 {
     // dynamic function pointers; based on whether ssl functions or normal socket functions should be used
     void* io_context = &ssl_structs->ssl_io_context;
-    int (*write_all)() = br_sslio_write_all;
-    int (*recv_once)() = br_sslio_read;
-    int (*recv_all)() = br_sslio_read_all;
+    int (*write_all)(void*, const void*, size_t) = br_sslio_write_all_wrapper;
+    int (*recv_once)(void*, void*, size_t) = br_sslio_read_wrapper;
+    int (*recv_all)(void*, void*, size_t) = br_sslio_read_all_wrapper;
     bool is_ssl = strcmp(ssl_structs->host_port->port, "443") == 0;
     if (!is_ssl) {
         io_context = &ssl_structs->socket;
         write_all = send_data;
-        recv_once = recv_wrapper;
+        recv_once = nossl_recv_wrapper;
         recv_all = receive_data;
     }
 
