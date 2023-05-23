@@ -19,12 +19,16 @@ The scope can be reduced on demand (see paragraph _modular build_).
 
 #### Multithreading support
 
-Multithreading is disabled by default when building with `make`.
+When building with `make`, by default the dynamic library is multithreaded and static library is single-threaded (for compatibility reasons).
+
 Enabling multithreading requires 2 conditions :
 - set build macro `ZSTD_MULTITHREAD` (`-DZSTD_MULTITHREAD` for `gcc`)
 - for POSIX systems : compile with pthread (`-pthread` compilation flag for `gcc`)
 
-Both conditions are automatically applied when invoking `make lib-mt` target.
+For convenience, we provide a build target to generate multi and single threaded libraries:
+- Force enable multithreading on both dynamic and static libraries by appending `-mt` to the target, e.g. `make lib-mt`.
+- Force disable multithreading on both dynamic and static libraries by appending `-nomt` to the target, e.g. `make lib-nomt`.
+- By default, as mentioned before, dynamic library is multithreaded, and static library is single-threaded, e.g. `make lib`.
 
 When linking a POSIX program with a multithreaded version of `libzstd`,
 note that it's necessary to invoke the `-pthread` flag during link stage.
@@ -42,8 +46,8 @@ Zstandard's stable API is exposed within [lib/zstd.h](zstd.h).
 
 Optional advanced features are exposed via :
 
-- `lib/common/zstd_errors.h` : translates `size_t` function results
-                               into a `ZSTD_ErrorCode`, for accurate error handling.
+- `lib/zstd_errors.h` : translates `size_t` function results
+                        into a `ZSTD_ErrorCode`, for accurate error handling.
 
 - `ZSTD_STATIC_LINKING_ONLY` : if this macro is defined _before_ including `zstd.h`,
                           it unlocks access to the experimental API,
@@ -87,7 +91,7 @@ The file structure is designed to make this selection manually achievable for an
         `ZSTD_LIB_COMPRESSION, ZSTD_LIB_DECOMPRESSION`, `ZSTD_LIB_DICTBUILDER`,
         and `ZSTD_LIB_DEPRECATED` as `0` to forgo compilation of the
         corresponding features. This will also disable compilation of all
-        dependencies (eg. `ZSTD_LIB_COMPRESSION=0` will also disable
+        dependencies (e.g. `ZSTD_LIB_COMPRESSION=0` will also disable
         dictBuilder).
 
 - There are a number of options that can help minimize the binary size of
@@ -121,7 +125,7 @@ The file structure is designed to make this selection manually achievable for an
   `ZSTD_getErrorName` (implied by `ZSTD_LIB_MINIFY`).
 
   Finally, when integrating into your application, make sure you're doing link-
-  time optimation and unused symbol garbage collection (via some combination of,
+  time optimization and unused symbol garbage collection (via some combination of,
   e.g., `-flto`, `-ffat-lto-objects`, `-fuse-linker-plugin`,
   `-ffunction-sections`, `-fdata-sections`, `-fmerge-all-constants`,
   `-Wl,--gc-sections`, `-Wl,-z,norelro`, and an archiver that understands
@@ -151,6 +155,19 @@ The file structure is designed to make this selection manually achievable for an
 - The build macro `ZSTD_NO_INTRINSICS` can be defined to disable all explicit intrinsics.
   Compiler builtins are still used.
 
+- The build macro `ZSTD_DECODER_INTERNAL_BUFFER` can be set to control
+  the amount of extra memory used during decompression to store literals.
+  This defaults to 64kB.  Reducing this value reduces the memory footprint of
+  `ZSTD_DCtx` decompression contexts,
+  but might also result in a small decompression speed cost.
+
+- The C compiler macros `ZSTDLIB_VISIBLE`, `ZSTDERRORLIB_VISIBLE` and `ZDICTLIB_VISIBLE`
+  can be overridden to control the visibility of zstd's API. Additionally,
+  `ZSTDLIB_STATIC_API` and `ZDICTLIB_STATIC_API` can be overridden to control the visibility
+  of zstd's static API. Specifically, it can be set to `ZSTDLIB_HIDDEN` to hide the symbols
+  from the shared library. These macros default to `ZSTDLIB_VISIBILITY`,
+  `ZSTDERRORLIB_VSIBILITY`, and `ZDICTLIB_VISIBILITY` if unset, for backwards compatibility
+  with the old macro names.
 
 #### Windows : using MinGW+MSYS to create DLL
 
