@@ -19,8 +19,17 @@ typedef struct vtable {
     uint16_t offsets[];
 } VTable;
 
-#define object_of(position) (void*) ((uint8_t*) (position) + *(uint32_t*) (position))
-#define VTable_of(position) (VTable*) ((uint8_t*) (position) - *(int32_t*) (position))
+typedef struct {
+    void* object;
+    VTable* vtable;
+} FlatBufferObject;
+
+#define to_(type, position) *(type*) (position)
+#define get_field(FlatBufferObject, index) (void*) ((uint8_t*) (FlatBufferObject)->object + (FlatBufferObject)->vtable->offsets[index])
+
+#define object_of(position) (void*) ((uint8_t*) (position) + to_(uint32_t, (position)))
+#define VTable_of(position) (VTable*) ((uint8_t*) (position) - to_(int32_t, (position)))
+#define FlatBufferObject_of(position) (FlatBufferObject) {.object = object_of(position), .vtable = VTable_of(object_of(position))}
 
 typedef struct chunk {
     uint32_t compressed_size;

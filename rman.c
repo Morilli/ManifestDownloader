@@ -112,32 +112,29 @@ char* duplicate_string(String* string)
 
 int parse_body(Manifest* manifest, uint8_t* body)
 {
-    uint8_t* root_object = object_of(body);
-    VTable* root_vtable = VTable_of(root_object);
+    FlatBufferObject rootObject = FlatBufferObject_of(body);
 
     // bundles (and their chunks)
-    OffsetVector* bundle_offsets = object_of(&root_object[root_vtable->offsets[0]]);
+    OffsetVector* bundle_offsets = object_of(get_field(&rootObject, 0));
     initialize_list_size(&manifest->bundles, bundle_offsets->length);
     uint32_t total_chunks = 0;
     for (uint32_t i = 0; i < bundle_offsets->length; i++) {
-        uint8_t* bundle_object = object_of(&bundle_offsets->objects[i]);
-        VTable* bundle_vtable = VTable_of(bundle_object);
+        FlatBufferObject bundleObject = FlatBufferObject_of(&bundle_offsets->objects[i]);
 
         Bundle new_bundle = {
-            .bundle_id = *(uint64_t*) &bundle_object[bundle_vtable->offsets[0]]
+            .bundle_id = to_(uint64_t, get_field(&bundleObject, 0))
         };
 
-        OffsetVector* chunk_offsets = object_of(&bundle_object[bundle_vtable->offsets[1]]);
+        OffsetVector* chunk_offsets = object_of(get_field(&bundleObject, 1));
         initialize_list_size(&new_bundle.chunks, chunk_offsets->length);
         for (uint32_t i = 0; i < chunk_offsets->length; i++) {
-            uint8_t* chunk_object = object_of(&chunk_offsets->objects[i]);
-            VTable* chunk_vtable = VTable_of(chunk_object);
+            FlatBufferObject chunkObject = FlatBufferObject_of(&chunk_offsets->objects[i]);
 
             Chunk new_chunk = {
-                .compressed_size = *(uint32_t*) &chunk_object[chunk_vtable->offsets[1]],
-                .uncompressed_size = *(uint32_t*) &chunk_object[chunk_vtable->offsets[2]],
-                .chunk_id = *(uint64_t*) &chunk_object[chunk_vtable->offsets[0]],
-                .bundle_offset = i == 0 ? 0 : new_bundle.chunks.objects[i - 1].bundle_offset + new_bundle.chunks.objects[i- 1].compressed_size,
+                .compressed_size = to_(uint32_t, get_field(&chunkObject, 1)),
+                .uncompressed_size = to_(uint32_t, get_field(&chunkObject, 2)),
+                .chunk_id = to_(uint64_t, get_field(&chunkObject, 0)),
+                .bundle_offset = i == 0 ? 0 : new_bundle.chunks.objects[i - 1].bundle_offset + new_bundle.chunks.objects[i - 1].compressed_size,
                 .bundle_id = new_bundle.bundle_id
             };
             add_object(&new_bundle.chunks, &new_chunk);
@@ -152,36 +149,34 @@ int parse_body(Manifest* manifest, uint8_t* body)
     sort_list(&manifest->chunks, chunk_id);
 
     // languages
-    OffsetVector* language_offsets = object_of(&root_object[root_vtable->offsets[1]]);
+    OffsetVector* language_offsets = object_of(get_field(&rootObject, 1));
     initialize_list_size(&manifest->languages, language_offsets->length);
     for (uint32_t i = 0; i < language_offsets->length; i++) {
-        uint8_t* language_object = object_of(&language_offsets->objects[i]);
-        VTable* language_vtable = VTable_of(language_object);
+        FlatBufferObject languageObject = FlatBufferObject_of(&language_offsets->objects[i]);
 
         Language new_language = {
-            .language_id = language_object[language_vtable->offsets[0]],
-            .name = duplicate_string(object_of(&language_object[language_vtable->offsets[1]]))
+            .language_id = to_(uint8_t, get_field(&languageObject, 0)),
+            .name = duplicate_string(object_of(get_field(&languageObject, 1)))
         };
         add_object_s(&manifest->languages, &new_language, language_id);
     }
 
     // file entries
     FileEntryList file_entries;
-    OffsetVector* file_entry_offsets = object_of(&root_object[root_vtable->offsets[2]]);
+    OffsetVector* file_entry_offsets = object_of(get_field(&rootObject, 2));
     initialize_list_size(&file_entries, file_entry_offsets->length);
     for (uint32_t i = 0; i < file_entry_offsets->length; i++) {
-        uint8_t* file_entry_object = object_of(&file_entry_offsets->objects[i]);
-        VTable* file_entry_vtable = VTable_of(file_entry_object);
+        FlatBufferObject fileEntryObject = FlatBufferObject_of(&file_entry_offsets->objects[i]);
 
         FileEntry new_file_entry = {
-            .file_entry_id = *(uint64_t*) &file_entry_object[file_entry_vtable->offsets[0]],
-            .directory_id = file_entry_vtable->offsets[1] ? *(uint64_t*) &file_entry_object[file_entry_vtable->offsets[1]] : 0,
-            .file_size = *(uint32_t*) &file_entry_object[file_entry_vtable->offsets[2]],
-            .name = object_of(&file_entry_object[file_entry_vtable->offsets[3]]),
-            .link = object_of(&file_entry_object[file_entry_vtable->offsets[9]]),
-            .chunk_ids = object_of(&file_entry_object[file_entry_vtable->offsets[7]])
+            .file_entry_id = to_(uint64_t, get_field(&fileEntryObject, 0)),
+            .directory_id = fileEntryObject.vtable->offsets[1] ? to_(uint64_t, get_field(&fileEntryObject, 1)) : 0,
+            .file_size = to_(uint32_t, get_field(&fileEntryObject, 2)),
+            .name = object_of(get_field(&fileEntryObject, 3)),
+            .link = object_of(get_field(&fileEntryObject, 9)),
+            .chunk_ids = object_of(get_field(&fileEntryObject, 7))
         };
-        uint64_t language_mask = file_entry_vtable->offsets[4] ? *(uint64_t*) &file_entry_object[file_entry_vtable->offsets[4]] : 0;
+        uint64_t language_mask = fileEntryObject.vtable->offsets[4] ? to_(uint64_t, get_field(&fileEntryObject, 4)) : 0;
         initialize_list(&new_file_entry.language_ids);
         for (int i = 0; i < 64; i++) {
             if (language_mask & (1ull << i)) {
@@ -193,16 +188,15 @@ int parse_body(Manifest* manifest, uint8_t* body)
 
     // directories
     DirectoryList directories;
-    OffsetVector* directory_offsets = object_of(&root_object[root_vtable->offsets[3]]);
+    OffsetVector* directory_offsets = object_of(get_field(&rootObject, 3));
     initialize_list_size(&directories, directory_offsets->length);
     for (uint32_t i = 0; i < directory_offsets->length; i++) {
-        uint8_t* directory_object = object_of(&directory_offsets->objects[i]);
-        VTable* directory_vtable = VTable_of(directory_object);
+        FlatBufferObject directoryObject = FlatBufferObject_of(&directory_offsets->objects[i]);
 
         Directory new_directory = {
-            .directory_id = *(uint64_t*) &directory_object[directory_vtable->offsets[0]],
-            .parent_id = directory_vtable->offsets[1] ? *(uint64_t*) &directory_object[directory_vtable->offsets[1]] : 0,
-            .name = object_of(&directory_object[directory_vtable->offsets[2]])
+            .directory_id = to_(uint64_t, get_field(&directoryObject, 0)),
+            .parent_id = directoryObject.vtable->offsets[1] ? to_(uint64_t, get_field(&directoryObject, 1)) : 0,
+            .name = object_of(get_field(&directoryObject, 2))
         };
         add_object(&directories, &new_directory);
     }
@@ -273,10 +267,10 @@ Manifest* parse_manifest_data(uint8_t* data)
     }
 
     Manifest* manifest = malloc(sizeof(Manifest));
-    uint32_t contentOffset = *(uint32_t*) (data + 8);
-    uint32_t compressedSize = *(uint32_t*) (data + 12);
-    manifest->manifest_id = *(uint64_t*) (data + 16);
-    uint32_t uncompressedSize = *(uint32_t*) (data + 24);
+    uint32_t contentOffset = to_(uint32_t, data + 8);
+    uint32_t compressedSize = to_(uint32_t, data + 12);
+    manifest->manifest_id = to_(uint64_t, data + 16);
+    uint32_t uncompressedSize = to_(uint32_t, data + 24);
 
     uint8_t* uncompressed_body = malloc(uncompressedSize);
     assert(ZSTD_decompress(uncompressed_body, uncompressedSize, data + contentOffset, compressedSize) == uncompressedSize);
