@@ -269,7 +269,11 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         }
         if (is_ssl) {
             int last_error = br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng);
-            if (last_error != 0) {
+            if (last_error == BR_ERR_IO) { // idfk
+                eprintf("Info: I/O error occured while receiving data. Trying again...\n");
+                refresh_connection(ssl_structs, is_ssl);
+                return receive_http_body(ssl_structs, request);
+            } else if (last_error != BR_ERR_OK) {
                 eprintf("bearssl engine reported error no. %d\n", last_error);
                 exit(EXIT_FAILURE);
             }
