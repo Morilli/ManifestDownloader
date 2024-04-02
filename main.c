@@ -118,7 +118,7 @@ int main(int argc, char* argv[])
         if (strcmp(*arg, "-t") == 0 || strcmp(*arg, "--threads") == 0) {
             if (*(arg + 1)) {
                 arg++;
-                amount_of_threads = strtol(*arg, NULL, 10);
+                amount_of_threads = max(strtol(*arg, NULL, 10), 1);
             }
         } else if (strcmp(*arg, "-o") == 0 || strcmp(*arg, "--output") == 0) {
             if (*(arg + 1)) {
