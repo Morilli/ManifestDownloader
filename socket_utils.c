@@ -341,23 +341,21 @@ static uint32_t response_to_ranges(HttpResponse* body, const ChunkList* chunks, 
 uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const ChunkList* chunks)
 {
     char request_header[8192];
-    uint32_list range_indices;
-    initialize_list(&range_indices);
-    add_object(&range_indices, &(uint32_t) {0});
+    uint32_list chunk_to_range_map;
+    initialize_list_size(&chunk_to_range_map, chunks->length);
+    add_object(&chunk_to_range_map, &(uint32_t) {0}); // first chunk is always at the beginning, so maps to the first range (0)
     uint32_t last_chunk = 0;
     uint32_t last_range = 0;
     sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + ssl_structs->host_port->path_offset, ssl_structs->host_port->host);
     char range[26];
     for (uint32_t i = 1; i < chunks->length; i++) {
-        if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size == chunks->objects[i].bundle_offset || chunks->objects[i-1].bundle_offset == chunks->objects[i].bundle_offset ) {
-            add_object(&range_indices, &(uint32_t) {last_range});
-        } else {
+        if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size != chunks->objects[i].bundle_offset && chunks->objects[i-1].bundle_offset != chunks->objects[i].bundle_offset) {
             sprintf(range, "%u-%u,", chunks->objects[last_chunk].bundle_offset, chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size - 1);
             strcat(request_header, range);
             last_range++;
             last_chunk = i;
-            add_object(&range_indices, &(uint32_t) {last_range});
         }
+        add_object(&chunk_to_range_map, &(uint32_t) {last_range});
     }
     sprintf(range, "%u-%u\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
     strcat(request_header, range);
@@ -380,7 +378,7 @@ uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const C
     }
 
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));
-    uint32_t chunks_handled = response_to_ranges(body, chunks, ranges, 0, chunks->length, range_indices);
+    uint32_t chunks_handled = response_to_ranges(body, chunks, ranges, 0, chunks->length, chunk_to_range_map);
     assert(chunks_handled == chunks->length);
 
     free(chunk_to_range_map.objects);
