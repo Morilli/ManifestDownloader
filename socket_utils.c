@@ -303,6 +303,41 @@ uint8_t** get_ranges(const char* bundle_path, const ChunkList* chunks)
     return ranges;
 }
 
+static uint32_t response_to_ranges(HttpResponse* body, const ChunkList* chunks, uint8_t** ranges, uint32_t first_chunk, uint32_t count, uint32_list chunk_to_range_map)
+{
+    uint32_t chunks_handled = 0;
+
+    if (body->status_code == 200) { // got the entire bundle instead of just the ranges (note: this is rare and i'm not sure why it happens)
+        for (uint32_t i = first_chunk; i < chunks->length; i++) {
+            ranges[i] = malloc(chunks->objects[i].compressed_size);
+            memcpy(ranges[i], &body->data[chunks->objects[i].bundle_offset], chunks->objects[i].compressed_size);
+        }
+        free(body->data);
+        chunks_handled = chunks->length - first_chunk;
+    } else if (chunks->length == 1) {
+        ranges[0] = body->data;
+        chunks_handled = 1;
+    } else {
+        char* pos = (char*) body->data;
+        // don't skip first range boundary delimiter if only one range was requested
+        if (chunk_to_range_map.objects[first_chunk + count - 1] != chunk_to_range_map.objects[first_chunk])
+            pos = strstr(pos, "\r\n\r\n") + 4;
+        for (uint32_t i = first_chunk; i < first_chunk + count; i++) {
+            if (i != 0 && chunk_to_range_map.objects[i] > chunk_to_range_map.objects[i-1])
+                pos = strstr(pos, "\r\n\r\n") + 4;
+            ranges[i] = malloc(chunks->objects[i].compressed_size);
+            memcpy(ranges[i], pos, chunks->objects[i].compressed_size);
+            if (i != chunks->length-1 && chunks->objects[i+1].bundle_offset > chunks->objects[i].bundle_offset)
+                pos += chunks->objects[i].compressed_size;
+        }
+        free(body->data);
+        chunks_handled = count;
+    }
+    free(body);
+
+    return chunks_handled;
+}
+
 uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const ChunkList* chunks)
 {
     char request_header[8192];
@@ -343,31 +378,12 @@ uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const C
         }
         return NULL;
     }
+
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));
-    if (body->status_code == 200) { // got the entire bundle instead of just the ranges (note: this is rare and i'm not sure why it happens)
-        for (uint32_t i = 0; i < chunks->length; i++) {
-            ranges[i] = malloc(chunks->objects[i].compressed_size);
-            memcpy(ranges[i], &body->data[chunks->objects[i].bundle_offset], chunks->objects[i].compressed_size);
-        }
-        free(body->data);
-    } else if (chunks->length == 1) {
-        ranges[0] = body->data;
-    } else {
-        char* pos = (char*) body->data;
-        if (range_indices.objects[range_indices.length-1] != 0)
-            pos = strstr(pos, "\r\n\r\n") + 4;
-        for (uint32_t i = 0; i < chunks->length; i++) {
-            if (i != 0 && range_indices.objects[i] > range_indices.objects[i-1])
-                pos = strstr(pos, "\r\n\r\n") + 4;
-            ranges[i] = malloc(chunks->objects[i].compressed_size);
-            memcpy(ranges[i], pos, chunks->objects[i].compressed_size);
-            if (i != chunks->length-1 && chunks->objects[i+1].bundle_offset > chunks->objects[i].bundle_offset)
-                pos += chunks->objects[i].compressed_size;
-        }
-        free(body->data);
-    }
-    free(body);
-    free(range_indices.objects);
+    uint32_t chunks_handled = response_to_ranges(body, chunks, ranges, 0, chunks->length, range_indices);
+    assert(chunks_handled == chunks->length);
+
+    free(chunk_to_range_map.objects);
 
     return ranges;
 }
