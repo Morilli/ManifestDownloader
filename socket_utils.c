@@ -340,46 +340,65 @@ static uint32_t response_to_ranges(HttpResponse* body, const ChunkList* chunks, 
 
 uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const ChunkList* chunks)
 {
-    char request_header[8192];
     uint32_list chunk_to_range_map;
     initialize_list_size(&chunk_to_range_map, chunks->length);
     add_object(&chunk_to_range_map, &(uint32_t) {0}); // first chunk is always at the beginning, so maps to the first range (0)
-    uint32_t last_chunk = 0;
     uint32_t last_range = 0;
-    sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + ssl_structs->host_port->path_offset, ssl_structs->host_port->host);
-    char range[26];
     for (uint32_t i = 1; i < chunks->length; i++) {
         if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size != chunks->objects[i].bundle_offset && chunks->objects[i-1].bundle_offset != chunks->objects[i].bundle_offset) {
-            sprintf(range, "%u-%u,", chunks->objects[last_chunk].bundle_offset, chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size - 1);
-            strcat(request_header, range);
             last_range++;
-            last_chunk = i;
         }
         add_object(&chunk_to_range_map, &(uint32_t) {last_range});
     }
-    sprintf(range, "%u-%u\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
-    strcat(request_header, range);
-    assert(strlen(request_header) < 8192);
-    dprintf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
-    dprintf("request header:\n\"%s\"\n", request_header);
-    HttpResponse* body = receive_http_body(ssl_structs, request_header);
-    dprintf("status code: %d\n", body->status_code);
-    if (!body || body->status_code >= 400) {
-        if (body)
-            eprintf("Error: Got a %d response.\n", body->status_code);
-        else {
-            eprintf("Error: Failed to receive response data.\n");
-            if (strcmp(ssl_structs->host_port->port, "443") == 0)
-                eprintf("Bearssl error: %d\n", br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng));
-            else
-                eprintf("Error: %s\n", strerror(errno));
-        }
-        return NULL;
-    }
 
+    char request_header[8000];
+    char current_range[23];
+    uint32_t first_chunk = 0;
     uint8_t** ranges = malloc(chunks->length * sizeof(char*));
-    uint32_t chunks_handled = response_to_ranges(body, chunks, ranges, 0, chunks->length, chunk_to_range_map);
-    assert(chunks_handled == chunks->length);
+
+    while (first_chunk < chunks->length) {
+        uint32_t chunk_count = 0;
+        sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + ssl_structs->host_port->path_offset, ssl_structs->host_port->host);
+        for (uint32_t i = first_chunk, range_start_chunk = first_chunk; i < chunks->length; i++) {
+            if (i == chunks->length-1 || chunk_to_range_map.objects[i+1] != chunk_to_range_map.objects[i]) {
+                sprintf(current_range, "%u-%u", chunks->objects[range_start_chunk].bundle_offset, chunks->objects[i].bundle_offset + chunks->objects[i].compressed_size - 1);
+                range_start_chunk = i + 1;
+
+                if (i == chunks->length - 1 // last chunk reached
+                    || strlen(request_header) + strlen(current_range) > sizeof(request_header) - sizeof(current_range) - 4) { // no further range is guaranteed to fit in the header
+                    strcat(request_header, current_range);
+                    chunk_count = i - first_chunk + 1;
+                    break;
+                }
+
+                strcat(current_range, ",");
+                strcat(request_header, current_range);
+            }
+        }
+
+        strcat(request_header, "\r\n\r\n");
+        dprintf("requesting %d chunk%s\n", chunk_count, chunk_count > 1 ? "s" : "");
+        dprintf("request header:\n\"%s\"\n", request_header);
+        HttpResponse* body = receive_http_body(ssl_structs, request_header);
+        dprintf("status code: %d\n", body->status_code);
+        if (!body || body->status_code >= 400) {
+            if (body)
+                eprintf("Error: Got a %d response.\n", body->status_code);
+            else {
+                eprintf("Error: Failed to receive response data.\n");
+                if (strcmp(ssl_structs->host_port->port, "443") == 0)
+                    eprintf("Bearssl error: %d\n", br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng));
+                else
+                    eprintf("Error: %s\n", strerror(errno));
+            }
+            free(ranges);
+            return NULL;
+        }
+
+        uint32_t chunks_handled = response_to_ranges(body, chunks, ranges, first_chunk, chunk_count, chunk_to_range_map);
+        assert(chunks_handled >= chunk_count);
+        first_chunk += chunks_handled;
+    }
 
     free(chunk_to_range_map.objects);
 
