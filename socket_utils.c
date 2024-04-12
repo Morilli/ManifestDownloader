@@ -314,7 +314,7 @@ static uint32_t response_to_ranges(HttpResponse* body, const ChunkList* chunks, 
         }
         free(body->data);
         chunks_handled = chunks->length - first_chunk;
-    } else if (chunks->length == 1) {
+    } else if (count == 1) {
         ranges[first_chunk] = body->data;
         chunks_handled = 1;
     } else {
@@ -327,7 +327,7 @@ static uint32_t response_to_ranges(HttpResponse* body, const ChunkList* chunks, 
                 pos = strstr(pos, "\r\n\r\n") + 4;
             ranges[i] = malloc(chunks->objects[i].compressed_size);
             memcpy(ranges[i], pos, chunks->objects[i].compressed_size);
-            if (i != chunks->length-1 && chunks->objects[i+1].bundle_offset > chunks->objects[i].bundle_offset)
+            if (i != first_chunk+count-1 && chunks->objects[i+1].bundle_offset > chunks->objects[i].bundle_offset)
                 pos += chunks->objects[i].compressed_size;
         }
         free(body->data);
