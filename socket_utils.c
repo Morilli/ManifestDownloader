@@ -303,71 +303,104 @@ uint8_t** get_ranges(const char* bundle_path, const ChunkList* chunks)
     return ranges;
 }
 
-uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const ChunkList* chunks)
+static uint32_t response_to_ranges(HttpResponse* body, const ChunkList* chunks, uint8_t** ranges, uint32_t first_chunk, uint32_t count, uint32_list chunk_to_range_map)
 {
-    char request_header[8192];
-    uint32_list range_indices;
-    initialize_list(&range_indices);
-    add_object(&range_indices, &(uint32_t) {0});
-    uint32_t last_chunk = 0;
-    uint32_t last_range = 0;
-    sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + ssl_structs->host_port->path_offset, ssl_structs->host_port->host);
-    char range[26];
-    for (uint32_t i = 1; i < chunks->length; i++) {
-        if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size == chunks->objects[i].bundle_offset || chunks->objects[i-1].bundle_offset == chunks->objects[i].bundle_offset ) {
-            add_object(&range_indices, &(uint32_t) {last_range});
-        } else {
-            sprintf(range, "%u-%u,", chunks->objects[last_chunk].bundle_offset, chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size - 1);
-            strcat(request_header, range);
-            last_range++;
-            last_chunk = i;
-            add_object(&range_indices, &(uint32_t) {last_range});
-        }
-    }
-    sprintf(range, "%u-%u\r\n\r\n", chunks->objects[last_chunk].bundle_offset, chunks->objects[chunks->length-1].bundle_offset + chunks->objects[chunks->length-1].compressed_size - 1);
-    strcat(request_header, range);
-    assert(strlen(request_header) < 8192);
-    dprintf("requesting %d chunk%s\n", chunks->length, chunks->length > 1 ? "s" : "");
-    dprintf("request header:\n\"%s\"\n", request_header);
-    HttpResponse* body = receive_http_body(ssl_structs, request_header);
-    dprintf("status code: %d\n", body->status_code);
-    if (!body || body->status_code >= 400) {
-        if (body)
-            eprintf("Error: Got a %d response.\n", body->status_code);
-        else {
-            eprintf("Error: Failed to receive response data.\n");
-            if (strcmp(ssl_structs->host_port->port, "443") == 0)
-                eprintf("Bearssl error: %d\n", br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng));
-            else
-                eprintf("Error: %s\n", strerror(errno));
-        }
-        return NULL;
-    }
-    uint8_t** ranges = malloc(chunks->length * sizeof(char*));
+    uint32_t chunks_handled = 0;
+
     if (body->status_code == 200) { // got the entire bundle instead of just the ranges (note: this is rare and i'm not sure why it happens)
-        for (uint32_t i = 0; i < chunks->length; i++) {
+        for (uint32_t i = first_chunk; i < chunks->length; i++) {
             ranges[i] = malloc(chunks->objects[i].compressed_size);
             memcpy(ranges[i], &body->data[chunks->objects[i].bundle_offset], chunks->objects[i].compressed_size);
         }
         free(body->data);
-    } else if (chunks->length == 1) {
-        ranges[0] = body->data;
+        chunks_handled = chunks->length - first_chunk;
+    } else if (count == 1) {
+        ranges[first_chunk] = body->data;
+        chunks_handled = 1;
     } else {
         char* pos = (char*) body->data;
-        if (range_indices.objects[range_indices.length-1] != 0)
+        // don't skip first range boundary delimiter if only one range was requested
+        if (chunk_to_range_map.objects[first_chunk + count - 1] != chunk_to_range_map.objects[first_chunk])
             pos = strstr(pos, "\r\n\r\n") + 4;
-        for (uint32_t i = 0; i < chunks->length; i++) {
-            if (i != 0 && range_indices.objects[i] > range_indices.objects[i-1])
+        for (uint32_t i = first_chunk; i < first_chunk + count; i++) {
+            if (i != first_chunk && chunk_to_range_map.objects[i] > chunk_to_range_map.objects[i-1])
                 pos = strstr(pos, "\r\n\r\n") + 4;
             ranges[i] = malloc(chunks->objects[i].compressed_size);
             memcpy(ranges[i], pos, chunks->objects[i].compressed_size);
-            if (i != chunks->length-1 && chunks->objects[i+1].bundle_offset > chunks->objects[i].bundle_offset)
+            if (i != first_chunk+count-1 && chunks->objects[i+1].bundle_offset > chunks->objects[i].bundle_offset)
                 pos += chunks->objects[i].compressed_size;
         }
         free(body->data);
+        chunks_handled = count;
     }
     free(body);
-    free(range_indices.objects);
+
+    return chunks_handled;
+}
+
+uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const ChunkList* chunks)
+{
+    uint32_list chunk_to_range_map;
+    initialize_list_size(&chunk_to_range_map, chunks->length);
+    add_object(&chunk_to_range_map, &(uint32_t) {0}); // first chunk is always at the beginning, so maps to the first range (0)
+    uint32_t last_range = 0;
+    for (uint32_t i = 1; i < chunks->length; i++) {
+        if (chunks->objects[i-1].bundle_offset + chunks->objects[i-1].compressed_size != chunks->objects[i].bundle_offset && chunks->objects[i-1].bundle_offset != chunks->objects[i].bundle_offset) {
+            last_range++;
+        }
+        add_object(&chunk_to_range_map, &(uint32_t) {last_range});
+    }
+
+    char request_header[8000];
+    char current_range[23];
+    uint32_t first_chunk = 0;
+    uint8_t** ranges = malloc(chunks->length * sizeof(char*));
+
+    while (first_chunk < chunks->length) {
+        uint32_t chunk_count = 0;
+        sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nRange: bytes=", url + ssl_structs->host_port->path_offset, ssl_structs->host_port->host);
+        for (uint32_t i = first_chunk, range_start_chunk = first_chunk; i < chunks->length; i++) {
+            if (i == chunks->length-1 || chunk_to_range_map.objects[i+1] != chunk_to_range_map.objects[i]) {
+                sprintf(current_range, "%u-%u", chunks->objects[range_start_chunk].bundle_offset, chunks->objects[i].bundle_offset + chunks->objects[i].compressed_size - 1);
+                range_start_chunk = i + 1;
+
+                if (i == chunks->length - 1 // last chunk reached
+                    || strlen(request_header) + strlen(current_range) > sizeof(request_header) - sizeof(current_range) - 4) { // no further range is guaranteed to fit in the header
+                    strcat(request_header, current_range);
+                    chunk_count = i - first_chunk + 1;
+                    break;
+                }
+
+                strcat(current_range, ",");
+                strcat(request_header, current_range);
+            }
+        }
+
+        strcat(request_header, "\r\n\r\n");
+        dprintf("requesting %d chunk%s\n", chunk_count, chunk_count > 1 ? "s" : "");
+        dprintf("request header:\n\"%s\"\n", request_header);
+        HttpResponse* body = receive_http_body(ssl_structs, request_header);
+        dprintf("status code: %d\n", body->status_code);
+        if (!body || body->status_code >= 400) {
+            if (body)
+                eprintf("Error: Got a %d response.\n", body->status_code);
+            else {
+                eprintf("Error: Failed to receive response data.\n");
+                if (strcmp(ssl_structs->host_port->port, "443") == 0)
+                    eprintf("Bearssl error: %d\n", br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng));
+                else
+                    eprintf("Error: %s\n", strerror(errno));
+            }
+            free(ranges);
+            return NULL;
+        }
+
+        uint32_t chunks_handled = response_to_ranges(body, chunks, ranges, first_chunk, chunk_count, chunk_to_range_map);
+        assert(chunks_handled >= chunk_count);
+        first_chunk += chunks_handled;
+    }
+
+    free(chunk_to_range_map.objects);
 
     return ranges;
 }
