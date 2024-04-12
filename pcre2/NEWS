@@ -2,6 +2,143 @@ News about PCRE2 releases
 -------------------------
 
 
+Version 10.43 16-February-2024
+------------------------------
+
+There are quite a lot of changes in this release (see ChangeLog and git log for
+a list). Those that are not bugfixes or code tidies are:
+
+* The JIT code no longer supports ARMv5 architecture.
+
+* A new function pcre2_get_match_data_heapframes_size() for finer heap control.
+
+* New option flags to restrict the interaction between ASCII and non-ASCII
+  characters for caseless matching and \d and friends. There are also new
+  pattern constructs to control these flags from within a pattern.
+
+* Upgrade to Unicode 15.0.0.
+
+* Treat a NULL pattern with zero length as an empty string.
+
+* Added support for limited-length variable-length lookbehind assertions, with
+  a default maximum length of 255 characters (same as Perl) but with a function
+  to adjust the limit.
+
+* Support for LoongArch in JIT.
+
+* Perl changed the meaning of (for example) {,3} which did not used to be
+  recognized as a quantifier. Now it means {0,3} and PCRE2 has also changed.
+  Note that {,} is still not a quantifier.
+
+* Following Perl, allow spaces and tabs after { and before } in all Perl-
+  compatible items that use braces, and also around commas in quantifiers. The
+  one exception in PCRE2 is \u{...}, which is from ECMAScript, not Perl, and
+  PCRE2 follows ECMAScript usage.
+
+* Changed the meaning of \w and its synonyms and derivatives (\b and \B) in UCP
+  mode to follow Perl. It now matches characters whose general categories are L
+  or N or whose particular categories are Mn (non-spacing mark) or Pc
+  (combining punctuation).
+
+* Changed the default meaning of [:xdigit:] in UCP mode to follow Perl. It now
+  matches the "fullwidth" versions of hex digits. PCRE2_EXTRA_ASCII_DIGIT can
+  be used to keep it ASCII only.
+
+* Make PCRE2_UCP the default in UTF mode in pcre2grep and add -no_ucp,
+  --case-restrict and --posix-digit.
+
+* Add --group-separator and --no-group-separator to pcre2grep.
+
+
+Version 10.42 11-December-2022
+------------------------------
+
+This is an unexpectedly early release to fix a problem that was introduced in
+10.41. ChangeLog number 19 (GitHub #139) added the default definition of
+PCRE2_CALL_CONVENTION to pcre2posix.c instead of pcre2posix.h, which meant that
+programs including pcre2posix.h but not pcre2.h couldn't compile. A new test
+that checks this case has been added.
+
+A couple of other minor issues are also fixed, and a patch for an intermittent
+JIT fault is also included. See ChangeLog and the Git log.
+
+
+Version 10.41 06-December-2022
+------------------------------
+
+This is another mainly bug-fixing and code-tidying release. There is one
+significant upgrade to pcre2grep: it now behaves like GNU grep when matching
+more than one pattern and a later pattern matches at an earlier point in the
+subject when the matched substrings are being identified by colour or by
+offsets.
+
+
+Version 10.40 15-April-2022
+---------------------------
+
+This is mostly a bug-fixing and code-tidying release. However, there are some
+extensions to Unicode property handling:
+
+* Added support for Bidi_Class and a number of binary Unicode properties,
+including Bidi_Control.
+
+* A number of changes to script matching for \p and \P:
+
+  (a) Script extensions for a character are now coded as a bitmap instead of
+      a list of script numbers, which should be faster and does not need a
+      loop.
+
+  (b) Added the syntax \p{script:xxx} and \p{script_extensions:xxx} (synonyms
+      sc and scx).
+
+  (c) Changed \p{scriptname} from being the same as \p{sc:scriptname} to being
+      the same as \p{scx:scriptname} because this change happened in Perl at
+      release 5.26.
+
+  (d) The standard Unicode 4-letter abbreviations for script names are now
+      recognized.
+
+  (e) In accordance with Unicode and Perl's "loose matching" rules, spaces,
+      hyphens, and underscores are ignored in property names, which are then
+      matched independent of case.
+
+As always, see ChangeLog for a list of all changes (also the Git log).
+
+
+Version 10.39 29-October-2021
+-----------------------------
+
+This release is happening soon after 10.38 because the bug fix is important.
+
+1. Fix incorrect detection of alternatives in first character search in JIT.
+
+2. Update to Unicode 14.0.0.
+
+3. Some code cleanups (see ChangeLog).
+
+
+Version 10.38 01-October-2021
+-----------------------------
+
+As well as some bug fixes and tidies (as always, see ChangeLog for details),
+the documentation is updated to list the new URLs, following the move of the
+source repository to GitHub and the mailing list to Google Groups.
+
+* The CMake build system can now build both static and shared libraries in one
+go.
+
+* Following Perl's lead, \K is now locked out in lookaround assertions by
+default, but an option is provided to re-enable the previous behaviour.
+
+
+Version 10.37 26-May-2021
+-------------------------
+
+A few more bug fixes and tidies. The only change of real note is the removal of
+the actual POSIX names regcomp etc. from the POSIX wrapper library because
+these have caused issues for some applications (see 10.33 #2 below).
+
+
 Version 10.36 04-December-2020
 ------------------------------
 
