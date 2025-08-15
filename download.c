@@ -157,7 +157,7 @@ void download_files(struct download_args* args)
             } else {
                 fixup = true;
                 flockfile(stdout);
-                printf("Verifying file %s...\r", to_download.name);
+                printf("Verifying file %s...", to_download.name);
                 fflush(stdout);
                 initialize_list(&chunks_to_download);
                 if (args->verify_only && file_info.st_size != (off_t) to_download.file_size) {
@@ -197,13 +197,13 @@ void download_files(struct download_args* args)
                 }
                 fclose(input_file);
                 if (chunks_to_download.length == 0 && file_info.st_size == (off_t) to_download.file_size) {
-                    printf("File %s is correct. \n", to_download.name);
+                    printf("\rFile %s is correct. \n", to_download.name);
                     free(file_output_path);
                     free(chunks_to_download.objects);
                     funlockfile(stdout);
                     continue;
                 } else verify_failed: {
-                    printf("File %s is incorrect.\n", to_download.name);
+                    printf("\rFile %s is incorrect.\n", to_download.name);
                     funlockfile(stdout);
                     if (args->verify_only) {
                         free(file_output_path);
