@@ -20,12 +20,6 @@ else
     LDFLAGS += -pthread
 endif
 
-ifneq ($(findstring mingw32-make,$(MAKE)),)
-    CMAKE_GENERATOR := MinGW Makefiles
-else
-    CMAKE_GENERATOR := Unix Makefiles
-endif
-
 all: $(target)
 strip: LDFLAGS := $(LDFLAGS) -s
 strip: all
@@ -36,14 +30,14 @@ ifeq ($(wildcard ./.prerequisites_built$(SUFFIX)),)
 	mv zstd/libzstd.a libs/libzstd$(SUFFIX).a
 
 	cmake --build pcre2/build > /dev/null 2>&1 || (mkdir -p pcre2/build && rm -rf pcre2/build/* && \
-	cmake -S pcre2 -B pcre2/build -G "$(CMAKE_GENERATOR)" -DPCRE2_BUILD_TESTS=OFF -DPCRE2_BUILD_PCRE2GREP=OFF -DPCRE2_SUPPORT_UNICODE=OFF -DCMAKE_C_FLAGS="-Os" && \
+	cmake -S pcre2 -B pcre2/build -G Ninja -DPCRE2_BUILD_TESTS=OFF -DPCRE2_BUILD_PCRE2GREP=OFF -DPCRE2_SUPPORT_UNICODE=OFF -DCMAKE_BUILD_TYPE=MinSizeRel && \
 	cmake --build pcre2/build) && \
 	mv pcre2/build/libpcre2-8.a libs/libpcre2$(SUFFIX).a
 
 	$(MAKE) -C BearSSL CONF=$(CONF)
 
 	cmake --build BLAKE3/c/build > /dev/null 2>&1 || (mkdir -p BLAKE3/c/build && rm -rf BLAKE3/c/build/* && \
-	cmake -S BLAKE3/c -B BLAKE3/c/build -G "$(CMAKE_GENERATOR)" && \
+	cmake -S BLAKE3/c -B BLAKE3/c/build -G Ninja -DCMAKE_BUILD_TYPE=Release && \
 	cmake --build BLAKE3/c/build) && \
 	mv BLAKE3/c/build/libblake3.a libs/libblake3$(SUFFIX).a
 
