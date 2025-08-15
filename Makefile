@@ -42,12 +42,17 @@ ifeq ($(wildcard ./.prerequisites_built$(SUFFIX)),)
 
 	$(MAKE) -C BearSSL CONF=$(CONF)
 
-	test -f ./libs/libzstd$(SUFFIX).a && test -f ./libs/libpcre2$(SUFFIX).a && test -f ./libs/libbearssl$(SUFFIX).a && \
+	cmake --build BLAKE3/c/build > /dev/null 2>&1 || (mkdir -p BLAKE3/c/build && rm -rf BLAKE3/c/build/* && \
+	cmake -S BLAKE3/c -B BLAKE3/c/build -G "$(CMAKE_GENERATOR)" && \
+	cmake --build BLAKE3/c/build) && \
+	mv BLAKE3/c/build/libblake3.a libs/libblake3$(SUFFIX).a
+
+	test -f ./libs/libzstd$(SUFFIX).a && test -f ./libs/libpcre2$(SUFFIX).a && test -f ./libs/libbearssl$(SUFFIX).a && test -f ./libs/libblake3$(SUFFIX).a && \
 	touch .prerequisites_built$(SUFFIX)
 endif
 
 object_files = general_utils.o rman.o socket_utils.o download.o main.o sha/sha256.o sha/sha256-x86.o BearSSL/root_certificates.o
-lib_files = libs/libzstd$(SUFFIX).a libs/libpcre2$(SUFFIX).a libs/libbearssl$(SUFFIX).a
+lib_files = libs/libzstd$(SUFFIX).a libs/libpcre2$(SUFFIX).a libs/libbearssl$(SUFFIX).a libs/libblake3$(SUFFIX).a
 
 general_utils.o: general_utils.h defs.h
 rman.o: rman.h defs.h list.h
@@ -66,5 +71,6 @@ clean:
 clean-all: clean
 	rm -f .prerequisites_built$(SUFFIX) $(lib_files)
 	rm -rf pcre2/build
+	rm -rf BLAKE3/c/build
 	$(MAKE) -C BearSSL clean CONF=$(CONF)
 	$(MAKE) -C zstd clean ZSTD_LIB_MINIFY=1

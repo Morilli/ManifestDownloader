@@ -183,7 +183,7 @@ void download_files(struct download_args* args)
                             .data = malloc(to_download.chunks.objects[i].uncompressed_size)
                         };
                         assert(fread(current_chunk.data, 1, to_download.chunks.objects[i].uncompressed_size, input_file) == to_download.chunks.objects[i].uncompressed_size);
-                        if (!chunk_valid(&current_chunk, to_download.chunks.objects[i].chunk_id)) {
+                        if (!chunk_valid(&current_chunk, to_download.chunks.objects[i].chunk_id, to_download.chunks.objects[i].hashType)) {
                             if (args->verify_only) {
                                 fclose(input_file);
                                 free(current_chunk.data);

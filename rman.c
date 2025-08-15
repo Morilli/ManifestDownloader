@@ -7,19 +7,27 @@
 #include <assert.h>
 #include "sha/sha256.h"
 #include "zstd/zstd.h"
+#include "BLAKE3/c/blake3.h"
 
 #include "defs.h"
 #include "list.h"
 #include "rman.h"
 
 
-bool chunk_valid(BinaryData* chunk, uint64_t chunk_id)
+static uint64_t hash_sha256(BinaryData* data)
+{
+    uint8_t shaBuffer[32];
+    sha256(data->data, data->length, shaBuffer);
+    return to_(uint64_t, &shaBuffer);
+}
+
+static uint64_t hash_hkdf(BinaryData* data)
 {
     // code taken straight from moonshadow, no idea what this shit is lol
     sha256_context sha;
     sha256_begin(&sha);
     uint8_t key[64] = {0};
-    sha256_update(&sha, chunk->data, chunk->length);
+    sha256_update(&sha, data->data, data->length);
     sha256_end(&sha, key);
     uint8_t ipad[64], opad[64];
     memcpy(ipad, key, 64);
@@ -54,7 +62,38 @@ bool chunk_valid(BinaryData* chunk, uint64_t chunk_id)
         }
     }
 
-    return memcmp(result, &chunk_id, 8) == 0;
+    return to_(uint64_t, result);
+}
+
+static uint64_t hash_blake3(BinaryData* data)
+{
+    uint8_t blake3Buffer[8];
+    blake3_hasher hasher;
+    blake3_hasher_init(&hasher);
+    blake3_hasher_update(&hasher, data->data, data->length);
+    blake3_hasher_finalize(&hasher, blake3Buffer, sizeof(blake3Buffer));
+    return to_(uint64_t, blake3Buffer);
+
+}
+
+bool chunk_valid(BinaryData* chunk, uint64_t chunk_id, HashType hashType)
+{
+    switch (hashType) {
+        case HASHTYPE_SHA512:
+            // TODO
+            // is this ever used?
+            eprintf("Error: Unimplemented hashtype SHA512 encountered\n");
+            return false;
+        case HASHTYPE_SHA256:
+            return hash_sha256(chunk) == chunk_id;
+        case HASHTYPE_HKDF:
+            return hash_hkdf(chunk) == chunk_id;
+        case HASHTYPE_BLAKE3:
+            return hash_blake3(chunk) == chunk_id;
+        default:
+            eprintf("Error: Unknown hashtype %u\n", hashType);
+            return false;
+    }
 }
 
 BundleList* group_by_bundles(ChunkList* chunks)
@@ -98,6 +137,8 @@ void free_manifest(Manifest* manifest)
         free(manifest->languages.objects[i].name);
     }
     free(manifest->languages.objects);
+
+    free(manifest->parameters.objects);
 
     free(manifest);
 }
@@ -174,7 +215,8 @@ int parse_body(Manifest* manifest, uint8_t* body)
             .file_size = to_(uint64_t, get_field(&fileEntryObject, 2)),
             .name = object_of(get_field(&fileEntryObject, 3)),
             .link = object_of(get_field(&fileEntryObject, 9)),
-            .chunk_ids = object_of(get_field(&fileEntryObject, 7))
+            .chunk_ids = object_of(get_field(&fileEntryObject, 7)),
+            .param_index = fileEntryObject.vtable->offsets[11] ? to_(uint8_t, get_field(&fileEntryObject, 11)) : 0,
         };
         uint64_t language_mask = fileEntryObject.vtable->offsets[4] ? to_(uint64_t, get_field(&fileEntryObject, 4)) : 0;
         initialize_list(&new_file_entry.language_ids);
@@ -199,6 +241,18 @@ int parse_body(Manifest* manifest, uint8_t* body)
             .name = object_of(get_field(&directoryObject, 2))
         };
         add_object(&directories, &new_directory);
+    }
+
+    // chunk compression parameters, mainly need the hash type
+    OffsetVector* parameter_offsets = object_of(get_field(&rootObject, 5));
+    initialize_list_size(&manifest->parameters, parameter_offsets->length);
+    for (uint32_t i = 0; i < parameter_offsets->length; i++) {
+        FlatBufferObject parametersObject = FlatBufferObject_of(&parameter_offsets->objects[i]);
+        Parameters parameters = {
+            .hashType = to_(uint8_t, get_field(&parametersObject, 1)),
+            .max_chunk_size = to_(uint32_t, get_field(&parametersObject, 4)),
+        };
+        add_object(&manifest->parameters, &parameters);
     }
 
     // merge directories and file_entries together to a list of files
@@ -236,6 +290,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
             Chunk* chunk = NULL;
             find_object_s(&manifest->chunks, chunk, chunk_id, file_entries.objects[i].chunk_ids->objects[j]);
             chunk->file_offset = file_offset;
+            chunk->hashType = manifest->parameters.objects[file_entries.objects[i].param_index].hashType;
             add_object(&new_file.chunks, chunk);
             file_offset += chunk->uncompressed_size;
         }

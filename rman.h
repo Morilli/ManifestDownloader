@@ -13,6 +13,13 @@
 typedef Vector(char) String;
 typedef Vector(uint32_t) OffsetVector;
 
+typedef enum /*: uint8_t*/ {
+    HASHTYPE_SHA512 = 1,
+    HASHTYPE_SHA256,
+    HASHTYPE_HKDF,
+    HASHTYPE_BLAKE3,
+} HashType;
+
 typedef struct vtable {
     uint16_t vtable_size;
     uint16_t object_size;
@@ -38,6 +45,7 @@ typedef struct chunk {
     uint64_t bundle_id;
     uint32_t bundle_offset;
     uint64_t file_offset;
+    HashType hashType;
 } Chunk;
 typedef LIST(Chunk) ChunkList;
 
@@ -61,6 +69,7 @@ typedef struct file_entry {
     Vector(uint64_t)* chunk_ids;
     String* name;
     String* link;
+    uint8_t param_index;
 } FileEntry;
 typedef LIST(FileEntry) FileEntryList;
 
@@ -80,12 +89,19 @@ typedef struct file {
 } File;
 typedef LIST(File) FileList;
 
+typedef struct parameters {
+    HashType hashType;
+    uint32_t max_chunk_size;
+} Parameters;
+typedef LIST(Parameters) ParametersList;
+
 typedef struct manifest {
     uint64_t manifest_id;
     ChunkList chunks;
     BundleList bundles;
     LanguageList languages;
     FileList files;
+    ParametersList parameters;
 } Manifest;
 
 void free_manifest(Manifest* manifest);
@@ -100,6 +116,6 @@ Manifest* parse_manifest_f(char* filepath);
 
 BundleList* group_by_bundles(ChunkList* chunks);
 
-bool chunk_valid(BinaryData* chunk, uint64_t chunk_id);
+bool chunk_valid(BinaryData* chunk, uint64_t chunk_id, HashType hashType);
 
 #endif
