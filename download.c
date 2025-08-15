@@ -150,7 +150,7 @@ void download_files(struct download_args* args)
         ChunkList chunks_to_download;
         bool fixup = false;
         if (access(file_output_path, F_OK) == 0) {
-            if (args->skip_existing && file_info.st_size == to_download.file_size) {
+            if (args->skip_existing && file_info.st_size == (off_t) to_download.file_size) {
                 free(file_output_path);
                 v_printf(2, "Skipping file %s\n", to_download.name);
                 continue;
@@ -160,7 +160,7 @@ void download_files(struct download_args* args)
                 printf("Verifying file %s...\r", to_download.name);
                 fflush(stdout);
                 initialize_list(&chunks_to_download);
-                if (args->verify_only && file_info.st_size != to_download.file_size) {
+                if (args->verify_only && file_info.st_size != (off_t) to_download.file_size) {
                     goto verify_failed;
                 }
                 FILE* input_file = fopen(file_output_path, "rb+");
@@ -170,7 +170,7 @@ void download_files(struct download_args* args)
                 }
                 setvbuf(input_file, file_buffer, _IOFBF, 256 * 1024); // notably boosts performance when fully reading large files in my testing
                 for (uint32_t i = 0; i < to_download.chunks.length; i++) {
-                    if (file_info.st_size < to_download.chunks.objects[i].file_offset + to_download.chunks.objects[i].uncompressed_size) {
+                    if (file_info.st_size < (off_t) to_download.chunks.objects[i].file_offset + to_download.chunks.objects[i].uncompressed_size) {
                         if (args->verify_only) {
                             fclose(input_file);
                             goto verify_failed;
@@ -196,7 +196,7 @@ void download_files(struct download_args* args)
                     }
                 }
                 fclose(input_file);
-                if (chunks_to_download.length == 0 && file_info.st_size == to_download.file_size) {
+                if (chunks_to_download.length == 0 && file_info.st_size == (off_t) to_download.file_size) {
                     printf("File %s is correct. \n", to_download.name);
                     free(file_output_path);
                     free(chunks_to_download.objects);

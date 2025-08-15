@@ -37,7 +37,7 @@ typedef struct chunk {
     uint64_t chunk_id;
     uint64_t bundle_id;
     uint32_t bundle_offset;
-    uint32_t file_offset;
+    uint64_t file_offset;
 } Chunk;
 typedef LIST(Chunk) ChunkList;
 
@@ -56,7 +56,7 @@ typedef LIST(Language) LanguageList;
 typedef struct file_entry {
     uint64_t file_entry_id;
     uint64_t directory_id;
-    uint32_t file_size;
+    uint64_t file_size;
     uint8_list language_ids;
     Vector(uint64_t)* chunk_ids;
     String* name;
@@ -75,7 +75,7 @@ typedef struct file {
     char* name;
     char* link;
     LanguageList languages;
-    uint32_t file_size;
+    uint64_t file_size;
     ChunkList chunks;
 } File;
 typedef LIST(File) FileList;

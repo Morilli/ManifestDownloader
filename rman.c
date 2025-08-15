@@ -171,7 +171,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
         FileEntry new_file_entry = {
             .file_entry_id = to_(uint64_t, get_field(&fileEntryObject, 0)),
             .directory_id = fileEntryObject.vtable->offsets[1] ? to_(uint64_t, get_field(&fileEntryObject, 1)) : 0,
-            .file_size = to_(uint32_t, get_field(&fileEntryObject, 2)),
+            .file_size = to_(uint64_t, get_field(&fileEntryObject, 2)),
             .name = object_of(get_field(&fileEntryObject, 3)),
             .link = object_of(get_field(&fileEntryObject, 9)),
             .chunk_ids = object_of(get_field(&fileEntryObject, 7))
@@ -231,7 +231,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
         }
         new_file.name = strdup(temp_name);
         initialize_list_size(&new_file.chunks, file_entries.objects[i].chunk_ids->length);
-        uint32_t file_offset = 0;
+        uint64_t file_offset = 0;
         for (uint32_t j = 0; j < file_entries.objects[i].chunk_ids->length; j++) {
             Chunk* chunk = NULL;
             find_object_s(&manifest->chunks, chunk, chunk_id, file_entries.objects[i].chunk_ids->objects[j]);

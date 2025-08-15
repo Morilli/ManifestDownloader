@@ -46,7 +46,7 @@ void print_manifest(Manifest* manifest, char* output_path)
     for (uint32_t i = 0; i < manifest->files.length; i++) {
         if (i) fprintf(output_file, ", {\n");
         fprintf(output_file, "    \"path\": \"%s\",\n", manifest->files.objects[i].name);
-        fprintf(output_file, "    \"file_size\": \"%d bytes\",\n", manifest->files.objects[i].file_size);
+        fprintf(output_file, "    \"file_size\": \"%"PRIu64" bytes\",\n", manifest->files.objects[i].file_size);
         fprintf(output_file, "    \"languages\": [");
         for (uint32_t j = 0; j < manifest->files.objects[i].languages.length; j++) {
             if (j) fprintf(output_file, ", "); else fprintf(output_file, "\n      ");
