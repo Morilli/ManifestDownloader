@@ -15,8 +15,6 @@
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
-#include "BearSSL/inc/bearssl_ssl.h"
-#include "BearSSL/trust_anchors.h"
 
 #include "socket_utils.h"
 #include "defs.h"
@@ -73,40 +71,12 @@ SOCKET __attribute__((warn_unused_result)) open_connection(uint32_t ip, uint16_t
 }
 
 
-int send_wrapper(void* client_context, const uint8_t* data, size_t length)
-{
-    int bytes_sent = send(*(SOCKET*) client_context, (const char*) data, length, 0);
-    if (bytes_sent <= 0) {
-        return -1;
-    }
-    return bytes_sent;
-}
-
-int recv_wrapper(void* client_context, uint8_t* buffer, size_t length)
-{
-    int received = recv(*(SOCKET*) client_context, (char*) buffer, length, 0);
-    if (received <= 0) {
-        return -1;
-    }
-    return received;
-}
-
-static int send_data(void* socket, const void* data, size_t length)
-{
-    int bytes_sent;
-    if ( (bytes_sent = send(*(SOCKET*) socket, (const char*) data, length, 0)) <= 0) {
-        eprintf("Error: %s\n", bytes_sent == 0 ? "Socket was disconnected unexpectedly." : strerror(errno));
-        return -1;
-    }
-    return 0;
-}
-
-static int receive_data(void* socket, void* buffer, size_t length)
+static int receive_all(int (*recv_func)(void*, void*, int), void* socket, void* buffer, size_t length)
 {
     size_t total_received = 0;
     while (total_received != length)
     {
-        ssize_t received = recv(*(SOCKET*) socket, &((char*) buffer)[total_received], length - total_received, 0);
+        ssize_t received = recv_func(socket, (char*)buffer + total_received, length - total_received);
         if (received <= 0) {
             eprintf("Error: %s\n", received == 0 ? "Socket was disconnected unexpectedly." : strerror(errno));
             return -1;
@@ -147,56 +117,58 @@ static void refresh_connection(struct ssl_data* ssl_structs, bool is_ssl)
     closesocket(ssl_structs->socket);
     ssl_structs->socket = open_connection_s(ssl_structs->host_port->host, ssl_structs->host_port->port);
     if (is_ssl) {
-        br_ssl_client_reset(&ssl_structs->ssl_client_context, ssl_structs->host_port->host, 1);
-        br_sslio_init(&ssl_structs->ssl_io_context, &ssl_structs->ssl_client_context.eng, recv_wrapper, &ssl_structs->socket, send_wrapper, &ssl_structs->socket);
+        wolfSSL_free(ssl_structs->ssl);
+        ssl_structs->ssl = wolfSSL_new(ctx);
+        wolfSSL_set_fd(ssl_structs->ssl, ssl_structs->socket);
+        if (wolfSSL_connect(ssl_structs->ssl) < 1) {
+            eprintf("Failed to connect to the server: %s\n", wolfSSL_ERR_reason_error_string(wolfSSL_get_error(ssl_structs->ssl, 0)));
+            exit(EXIT_FAILURE);
+        }
     }
 }
 
-static int br_sslio_write_all_wrapper(void* cc, const void* src, size_t len) {return br_sslio_write_all(cc, src, len);}
-static int br_sslio_read_wrapper(void* cc, void* dst, size_t len) {return br_sslio_read(cc, dst, len);}
-static int br_sslio_read_all_wrapper(void* cc, void* dst, size_t len) {return br_sslio_read_all(cc, dst, len);}
-static int nossl_recv_wrapper(void* client_context, void* buffer, size_t len) {return recv_wrapper(client_context, buffer, len);}
+static int send_wrapper(void* socket, const void* data, int length) {return send(*(SOCKET*) socket, data, length, 0);}
+static int recv_wrapper(void* socket, void* buffer, int length) {return recv(*(SOCKET*) socket, buffer, length, 0);}
+
+static int SSL_write_wrapper(void* ssl, const void* data, int sz) {return wolfSSL_write(ssl, data, sz);}
+static int SSL_read_wrapper(void* ssl, void* data, int sz) {return wolfSSL_read(ssl, data, sz);}
 
 HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* request)
 {
     // dynamic function pointers; based on whether ssl functions or normal socket functions should be used
-    void* io_context = &ssl_structs->ssl_io_context;
-    int (*write_all)(void*, const void*, size_t) = br_sslio_write_all_wrapper;
-    int (*recv_once)(void*, void*, size_t) = br_sslio_read_wrapper;
-    int (*recv_all)(void*, void*, size_t) = br_sslio_read_all_wrapper;
+    void* socket = ssl_structs->ssl;
+    int (*send_func)(void*, const void*, int) = SSL_write_wrapper;
+    int (*recv_func)(void*, void*, int) = SSL_read_wrapper;
     bool is_ssl = strcmp(ssl_structs->host_port->port, "443") == 0;
     if (!is_ssl) {
-        io_context = &ssl_structs->socket;
-        write_all = send_data;
-        recv_once = nossl_recv_wrapper;
-        recv_all = receive_data;
+        socket = &ssl_structs->socket;
+        send_func = send_wrapper;
+        recv_func = recv_wrapper;
     }
 
-    int success = write_all(io_context, request, strlen(request));
-    if (is_ssl) {
-        br_sslio_flush(io_context);
-        int last_error = br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng);
-        if (last_error == BR_ERR_X509_NOT_TRUSTED) {
-            eprintf("Error: No certificate was valid for this server. Please report this.\n");
-            exit(EXIT_FAILURE);
-        } else if (last_error == BR_ERR_IO) { // assume socket was closed due to inactivity and try again
-            eprintf("Info: Underlying connection was closed. Trying again...\n");
+    int success = send_func(socket, request, strlen(request));
+    if (success <= 0) {
+        if (is_ssl) {
+            int last_error = wolfSSL_get_error(socket, success);
+            if (last_error == SSL_ERROR_ZERO_RETURN) { // assume socket was closed due to inactivity and try again
+                eprintf("Info: Underlying connection was closed. Trying again...\n");
+                refresh_connection(ssl_structs, is_ssl);
+                return receive_http_body(ssl_structs, request);
+            } else {
+                eprintf("Failed sending data. Error: %s\n", wolfSSL_ERR_reason_error_string(last_error));
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            eprintf("Attempting reconnection...\n");
             refresh_connection(ssl_structs, is_ssl);
             return receive_http_body(ssl_structs, request);
-        } else if (last_error != BR_ERR_OK) {
-            eprintf("bearssl engine reported error no. %d\n", last_error);
-            exit(EXIT_FAILURE);
         }
-    } else if (success == -1) {
-        eprintf("Attempting reconnection...\n");
-        refresh_connection(ssl_structs, is_ssl);
-        return receive_http_body(ssl_structs, request);
     }
     char header_buffer[8193] = {0};
     int received = 0;
     do {
-        int bytes_read = recv_once(io_context, header_buffer + received, 8192 - received);
-        if (bytes_read == -1) return NULL;
+        int bytes_read = recv_func(socket, header_buffer + received, 8192 - received);
+        if (bytes_read <= 0) return NULL;
         received += bytes_read;
     } while (!strstr(header_buffer, "\r\n\r\n"));
     dprintf("received header:\n\"%s\"\n", header_buffer);
@@ -214,7 +186,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         body->data = malloc(body->length);
         memcpy(body->data, start_of_body, already_received);
         dprintf("already received %d, will try to receive the rest %u\n", already_received, body->length - already_received);
-        if (recv_all(io_context, &body->data[already_received], body->length - already_received) != 0) return NULL;
+        if (receive_all(recv_func, socket, &body->data[already_received], body->length - already_received) != 0) return NULL;
     } else if (strcasestr(header_buffer, "Transfer-Encoding: chunked")) {
         // header contained the transfer-encoding: chunked header, which is difficult to handle (no content-length)
         char* start_of_chunk = start_of_body;
@@ -223,8 +195,8 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
             while (!strstr(start_of_chunk, "\r\n")) {
                 strcpy(chunk_size_buffer, start_of_chunk);
                 start_of_chunk = chunk_size_buffer;
-                int received = recv_once(io_context, &start_of_chunk[already_received], 31 - already_received);
-                if (received == -1) return NULL;
+                int received = recv_func(socket, &start_of_chunk[already_received], 31 - already_received);
+                if (received <= 0) return NULL;
                 already_received += received;
             }
             int chunk_size = strtol(start_of_chunk, NULL, 16);
@@ -239,8 +211,8 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
                 already_received -= chunk_size + 2;
             } else {
                 memcpy(&body->data[body->length], body_position, already_received);
-                if (recv_all(io_context, &body->data[body->length + already_received], chunk_size - already_received) != 0 ||
-                    recv_all(io_context, &(uint16_t) {0}, 2) != 0) {
+                if (receive_all(recv_func, socket, &body->data[body->length + already_received], chunk_size - already_received) != 0 ||
+                    receive_all(recv_func, socket, &(uint16_t) {0}, 2) != 0) {
                     return NULL;
                 }
                 start_of_chunk = body_position + already_received;
@@ -250,7 +222,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         }
         if (!strstr(start_of_chunk + 3, "\r\n")) {
             // in the rare case the final chunk size (0) was received, but not the last \r\n (should never happen)
-            recv_once(io_context, &(uint64_t) {0}, 8); // assume we get everything here
+            recv_func(socket, &(uint64_t) {0}, 8); // assume we get everything here
         }
     } else {
         // no content-length field, so there is no way to know everything was received
@@ -260,7 +232,7 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
         uint64_t buffer_size = 8192 + (8192 >> 1);
         body->data = malloc(buffer_size);
         memcpy(body->data, start_of_body, already_received);
-        while ( (received = recv_once(io_context, &body->data[body->length], buffer_size - body->length)) != -1) {
+        while ( (received = recv_func(socket, &body->data[body->length], buffer_size - body->length)) > 0) {
             body->length += received;
             if (body->length == buffer_size) {
                 buffer_size += buffer_size >> 1;
@@ -268,17 +240,15 @@ HttpResponse* receive_http_body(struct ssl_data* ssl_structs, const char* reques
             }
         }
         if (is_ssl) {
-            int last_error = br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng);
-            if (last_error == BR_ERR_IO) { // idfk
-                eprintf("Info: I/O error occured while receiving data. Trying again...\n");
+            int last_error = wolfSSL_get_error(socket, received);
+            if (last_error != WOLFSSL_ERROR_ZERO_RETURN) {
+                eprintf("Failed receiving data. Error: %s\n", wolfSSL_ERR_reason_error_string(last_error));
+                eprintf("Trying again...\n");
                 refresh_connection(ssl_structs, is_ssl);
                 return receive_http_body(ssl_structs, request);
-            } else if (last_error != BR_ERR_OK) {
-                eprintf("bearssl engine reported error no. %d\n", last_error);
-                exit(EXIT_FAILURE);
             }
         }
-        else assert(recv(*(SOCKET*) io_context, &(char) {0}, 1, 0) == 0);
+        else assert(recv(*(SOCKET*) socket, &(char) {0}, 1, 0) == 0);
     }
     if (refresh) refresh_connection(ssl_structs, is_ssl);
     return body;
@@ -386,10 +356,11 @@ uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const C
                 eprintf("Error: Got a %d response.\n", body->status_code);
             else {
                 eprintf("Error: Failed to receive response data.\n");
-                if (strcmp(ssl_structs->host_port->port, "443") == 0)
-                    eprintf("Bearssl error: %d\n", br_ssl_engine_last_error(&ssl_structs->ssl_client_context.eng));
-                else
+                if (strcmp(ssl_structs->host_port->port, "443") == 0) {
+                    eprintf("SSL error: %s\n", wolfSSL_ERR_reason_error_string(wolfSSL_get_error(ssl_structs->ssl, 0)));
+                } else {
                     eprintf("Error: %s\n", strerror(errno));
+                }
             }
             free(ranges);
             return NULL;
@@ -415,11 +386,12 @@ HttpResponse* download_url(const char* url)
     bool is_ssl = strcmp(ssl_structs.host_port->port, "443") == 0;
     ssl_structs.socket = open_connection_s(ssl_structs.host_port->host, ssl_structs.host_port->port);
     if (is_ssl) {
-        ssl_structs.io_buffer = malloc(BR_SSL_BUFSIZE_BIDI);
-        br_ssl_client_init_full(&ssl_structs.ssl_client_context, &ssl_structs.x509_client_context, TAs, TAs_NUM);
-        br_ssl_engine_set_buffer(&ssl_structs.ssl_client_context.eng, ssl_structs.io_buffer, BR_SSL_BUFSIZE_BIDI, 1);
-        br_ssl_client_reset(&ssl_structs.ssl_client_context, ssl_structs.host_port->host, 0);
-        br_sslio_init(&ssl_structs.ssl_io_context, &ssl_structs.ssl_client_context.eng, recv_wrapper, &ssl_structs.socket, send_wrapper, &ssl_structs.socket);
+        ssl_structs.ssl = wolfSSL_new(ctx);
+        wolfSSL_set_fd(ssl_structs.ssl, ssl_structs.socket);
+        if (wolfSSL_connect(ssl_structs.ssl) < 1) {
+            eprintf("Failed to connect to the server: %s\n", wolfSSL_ERR_reason_error_string(wolfSSL_get_error(ssl_structs.ssl, 0)));
+            exit(EXIT_FAILURE);
+        }
     }
     char request_header[1024];
     assert(sprintf(request_header, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", url + ssl_structs.host_port->path_offset, ssl_structs.host_port->host) < 1024);
@@ -427,7 +399,7 @@ HttpResponse* download_url(const char* url)
     free(ssl_structs.host_port->host);
     free(ssl_structs.host_port);
     closesocket(ssl_structs.socket);
-    if (is_ssl) free(ssl_structs.io_buffer);
+    if (is_ssl) wolfSSL_free(ssl_structs.ssl);
 
     return data;
 }

@@ -25,6 +25,7 @@
 int VERBOSE;
 int amount_of_threads = 1;
 const char* bundle_base;
+WOLFSSL_CTX* ctx;
 
 void print_manifest(Manifest* manifest, char* output_path)
 {
@@ -100,6 +101,13 @@ int main(int argc, char* argv[])
         }
     #endif
     hasShaExtension = checkShaExtension();
+
+    wolfSSL_Init();
+    ctx = wolfSSL_CTX_new(wolfTLS_client_method());
+    if (wolfSSL_CTX_load_system_CA_certs(ctx) != 1) {
+        eprintf("Failed to load system certificates\n");
+        exit(EXIT_FAILURE);
+    }
 
     char* outputPath = "output";
     bool do_print_manifest = false;
@@ -264,6 +272,9 @@ int main(int argc, char* argv[])
         };
         download_files(&download_args);
     }
+
+    wolfSSL_CTX_free(ctx);
+    wolfSSL_Cleanup();
 
     #ifdef _WIN32
         WSACleanup();

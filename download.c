@@ -12,8 +12,6 @@
 #include <unistd.h>
 #include <assert.h>
 #include "zstd/zstd.h"
-#include "BearSSL/inc/bearssl_ssl.h"
-#include "BearSSL/trust_anchors.h"
 
 #include "download.h"
 #include "defs.h"
@@ -265,11 +263,12 @@ void download_files(struct download_args* args)
                     new_bundle_args->ssl_structs.socket = open_connection_s(host_port->host, host_port->port);
                     new_bundle_args->ssl_structs.host_port = host_port;
                     if (is_ssl) {
-                        br_ssl_client_init_full(&new_bundle_args->ssl_structs.ssl_client_context, &new_bundle_args->ssl_structs.x509_client_context, TAs, TAs_NUM);
-                        new_bundle_args->ssl_structs.io_buffer = malloc(BR_SSL_BUFSIZE_BIDI);
-                        br_ssl_engine_set_buffer(&new_bundle_args->ssl_structs.ssl_client_context.eng, new_bundle_args->ssl_structs.io_buffer, BR_SSL_BUFSIZE_BIDI, 1);
-                        br_ssl_client_reset(&new_bundle_args->ssl_structs.ssl_client_context, host_port->host, 0);
-                        br_sslio_init(&new_bundle_args->ssl_structs.ssl_io_context, &new_bundle_args->ssl_structs.ssl_client_context.eng, recv_wrapper, &new_bundle_args->ssl_structs.socket, send_wrapper, &new_bundle_args->ssl_structs.socket);
+                        new_bundle_args->ssl_structs.ssl = wolfSSL_new(ctx);
+                        wolfSSL_set_fd(new_bundle_args->ssl_structs.ssl, new_bundle_args->ssl_structs.socket);
+                        if (wolfSSL_connect(new_bundle_args->ssl_structs.ssl) < 1) {
+                            eprintf("Failed to connect to the server: %s\n", wolfSSL_ERR_reason_error_string(wolfSSL_get_error(new_bundle_args->ssl_structs.ssl, 0)));
+                            exit(EXIT_FAILURE);
+                        }
                     }
                 }
                 new_bundle_args->filesystem_only = filesystem_only;
@@ -327,7 +326,7 @@ void download_files(struct download_args* args)
     for (int i = 0; i < threads_created; i++) {
         void* to_free;
         pthread_join(tid[i], &to_free);
-        if (is_ssl) free(((struct bundle_args*) to_free)->ssl_structs.io_buffer);
+        if (is_ssl) wolfSSL_free(((struct bundle_args*) to_free)->ssl_structs.ssl);
         free(to_free);
     }
     free(host_port->host);

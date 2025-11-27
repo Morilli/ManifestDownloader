@@ -13,5 +13,5 @@ The BLAKE3 submodule is required to build.
 Linux systems and msys/mingw should be able to compile perfectly, everything else I don't really know tbh.
 Just run "make" in the project root and the executable should be built automatically.
 
-By default, all dependency libraries (bearssl, zstd and pcre2) will only be built once and not be removed or remade on `make clean` or `make -B`.
+By default, all dependency libraries (wolfssl, zstd and pcre2) will only be built once and not be removed or remade on `make clean` or `make -B`.
 To clean them as well, run `make clean-all` (will run `make clean` implicitly).

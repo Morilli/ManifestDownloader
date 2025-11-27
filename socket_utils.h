@@ -5,7 +5,7 @@
     #include <winsock2.h>
 #endif
 #include <inttypes.h>
-#include "BearSSL/inc/bearssl_ssl.h"
+#include <wolfssl/ssl.h>
 
 #include "rman.h"
 
@@ -13,6 +13,8 @@
     #define closesocket(socket) close(socket)
     typedef int SOCKET;
 #endif
+
+extern WOLFSSL_CTX* ctx;
 
 typedef struct http_response {
     int status_code;
@@ -29,10 +31,7 @@ typedef struct host_port {
 struct ssl_data {
     SOCKET socket;
     HostPort* host_port;
-    br_ssl_client_context ssl_client_context;
-    uint8_t* io_buffer;
-    br_sslio_context ssl_io_context;
-    br_x509_minimal_context x509_client_context;
+    WOLFSSL* ssl;
 };
 
 SOCKET __attribute__((warn_unused_result)) open_connection_s(const char* ip, const char* port);
@@ -44,9 +43,5 @@ uint8_t** download_ranges(struct ssl_data* ssl_structs, const char* url, const C
 HostPort* get_host_port(const char* url);
 
 HttpResponse* download_url(const char* url);
-
-int send_wrapper(void* client_context, const uint8_t* data, size_t length);
-
-int recv_wrapper(void* client_context, uint8_t* buffer, size_t length);
 
 #endif
