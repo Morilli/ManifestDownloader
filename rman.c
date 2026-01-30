@@ -145,6 +145,8 @@ void free_manifest(Manifest* manifest)
 
 char* duplicate_string(String* string)
 {
+    if (!string) return NULL;
+
     char* new_string = malloc(string->length + 1);
     memcpy(new_string, string->objects, string->length + 1);
 
@@ -214,7 +216,7 @@ int parse_body(Manifest* manifest, uint8_t* body)
             .directory_id = fileEntryObject.vtable->offsets[1] ? to_(uint64_t, get_field(&fileEntryObject, 1)) : 0,
             .file_size = to_(uint64_t, get_field(&fileEntryObject, 2)),
             .name = object_of(get_field(&fileEntryObject, 3)),
-            .link = object_of(get_field(&fileEntryObject, 9)),
+            .link = fileEntryObject.vtable->offsets[9] ? object_of(get_field(&fileEntryObject, 9)) : NULL,
             .chunk_ids = object_of(get_field(&fileEntryObject, 7)),
             .param_index = fileEntryObject.vtable->offsets[11] ? to_(uint8_t, get_field(&fileEntryObject, 11)) : 0,
         };
@@ -315,10 +317,11 @@ Manifest* parse_manifest_data(uint8_t* data)
         return NULL;
     }
 
-    if (data[4] == 2 && data[5] != 0) {
-        v_printf(1, "Info: Untested manifest version %d.%d detected. Everything should still work though.\n", data[4], data[5]);
+    if (data[4] == 2 && data[5] != 0 && data[5] != 1) {
+        eprintf("Warning: Untested manifest version %d.%d detected. Everything should still work though.\n", data[4], data[5]);
     } else if (data[4] != 2) {
-        eprintf("Warning: Probably unsupported manifest version %d.%d detected. Will continue, but it might not work.\n", data[4], data[5]);
+        eprintf("Error: Unsupported manifest version %d.%d detected.\n", data[4], data[5]);
+        return NULL;
     }
 
     Manifest* manifest = malloc(sizeof(Manifest));
