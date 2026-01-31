@@ -11,7 +11,7 @@
 #include <string.h>
 #include <inttypes.h>
 #include <unistd.h>
-#include "pcre2/pcre2.h"
+#include "libs/pcre2.h"
 #include "sha/sha_extension.h"
 
 #include "defs.h"

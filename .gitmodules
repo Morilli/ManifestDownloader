@@ -4,3 +4,6 @@
 [submodule "wolfssl"]
 	path = wolfssl
 	url = https://github.com/wolfSSL/wolfssl
+[submodule "pcre2"]
+	path = pcre2
+	url = https://github.com/PCRE2Project/pcre2

@@ -30,6 +30,7 @@ ifeq ($(wildcard ./.prerequisites_built$(SUFFIX)),)
 	cmake --build pcre2/build > /dev/null 2>&1 || (mkdir -p pcre2/build && rm -rf pcre2/build/* && \
 	cmake -S pcre2 -B pcre2/build -G Ninja -DPCRE2_BUILD_TESTS=OFF -DPCRE2_BUILD_PCRE2GREP=OFF -DPCRE2_SUPPORT_UNICODE=OFF -DCMAKE_BUILD_TYPE=MinSizeRel && \
 	cmake --build pcre2/build) && \
+	cp pcre2/build/interface/pcre2.h libs/ && \
 	mv pcre2/build/libpcre2-8.a libs/libpcre2$(SUFFIX).a
 
 	cmake --build wolfssl/build > /dev/null 2>&1 || (mkdir -p wolfssl/build && rm -rf wolfssl/build/* && \
