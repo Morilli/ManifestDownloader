@@ -93,7 +93,9 @@ typedef LIST(File) FileList;
 
 typedef struct parameters {
     HashType hashType;
+    uint32_t min_chunk_size;
     uint32_t max_chunk_size;
+    uint32_t max_uncompressed_size;
 } Parameters;
 typedef LIST(Parameters) ParametersList;
 

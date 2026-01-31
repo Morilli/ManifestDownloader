@@ -252,7 +252,9 @@ int parse_body(Manifest* manifest, uint8_t* body)
         FlatBufferObject parametersObject = FlatBufferObject_of(&parameter_offsets->objects[i]);
         Parameters parameters = {
             .hashType = to_(uint8_t, get_field(&parametersObject, 1)),
-            .max_chunk_size = to_(uint32_t, get_field(&parametersObject, 4)),
+            .min_chunk_size = to_(uint32_t, get_field(&parametersObject, 2)),
+            .max_chunk_size = to_(uint32_t, get_field(&parametersObject, 3)),
+            .max_uncompressed_size = to_(uint32_t, get_field(&parametersObject, 4)),
         };
         add_object(&manifest->parameters, &parameters);
     }
