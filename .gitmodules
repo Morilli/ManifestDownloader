@@ -7,3 +7,6 @@
 [submodule "pcre2"]
 	path = pcre2
 	url = https://github.com/PCRE2Project/pcre2
+[submodule "zstd"]
+	path = zstd
+	url = https://github.com/facebook/zstd

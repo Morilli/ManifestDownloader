@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <assert.h>
-#include "zstd/zstd.h"
+#include "zstd/lib/zstd.h"
 
 #include "download.h"
 #include "defs.h"

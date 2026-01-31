@@ -6,7 +6,7 @@
 #include <inttypes.h>
 #include <assert.h>
 #include "sha/sha256.h"
-#include "zstd/zstd.h"
+#include "zstd/lib/zstd.h"
 #include "BLAKE3/c/blake3.h"
 
 #include "defs.h"
