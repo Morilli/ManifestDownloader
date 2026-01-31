@@ -31,8 +31,10 @@ typedef struct {
     VTable* vtable;
 } FlatBufferObject;
 
-#define to_(type, position) *(type*) (position)
-#define get_field(FlatBufferObject, index) (void*) ((uint8_t*) (FlatBufferObject)->object + (FlatBufferObject)->vtable->offsets[index])
+#define to_(type, position) ((position) != NULL ? *(type*) (position) : 0)
+#define get_field(FlatBufferObject, index) (((FlatBufferObject)->vtable->vtable_size - 4) / 2 > (index) && (FlatBufferObject)->vtable->offsets[index] \
+    ? (void*) ((uint8_t*) (FlatBufferObject)->object + (FlatBufferObject)->vtable->offsets[index]) \
+    : NULL)
 
 #define object_of(position) (void*) ((uint8_t*) (position) + to_(uint32_t, (position)))
 #define VTable_of(position) (VTable*) ((uint8_t*) (position) - to_(int32_t, (position)))

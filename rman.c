@@ -213,14 +213,14 @@ int parse_body(Manifest* manifest, uint8_t* body)
 
         FileEntry new_file_entry = {
             .file_entry_id = to_(uint64_t, get_field(&fileEntryObject, 0)),
-            .directory_id = fileEntryObject.vtable->offsets[1] ? to_(uint64_t, get_field(&fileEntryObject, 1)) : 0,
+            .directory_id = to_(uint64_t, get_field(&fileEntryObject, 1)), // optional
             .file_size = to_(uint64_t, get_field(&fileEntryObject, 2)),
             .name = object_of(get_field(&fileEntryObject, 3)),
-            .link = fileEntryObject.vtable->offsets[9] ? object_of(get_field(&fileEntryObject, 9)) : NULL,
+            .link = object_of(get_field(&fileEntryObject, 9)), // removed in 2.1
             .chunk_ids = object_of(get_field(&fileEntryObject, 7)),
-            .param_index = fileEntryObject.vtable->offsets[11] ? to_(uint8_t, get_field(&fileEntryObject, 11)) : 0,
+            .param_index = to_(uint8_t, get_field(&fileEntryObject, 11)), // removed in 2.1
         };
-        uint64_t language_mask = fileEntryObject.vtable->offsets[4] ? to_(uint64_t, get_field(&fileEntryObject, 4)) : 0;
+        uint64_t language_mask = to_(uint64_t, get_field(&fileEntryObject, 4)); // optional
         initialize_list(&new_file_entry.language_ids);
         for (int i = 0; i < 64; i++) {
             if (language_mask & (1ull << i)) {
@@ -239,8 +239,8 @@ int parse_body(Manifest* manifest, uint8_t* body)
 
         Directory new_directory = {
             .directory_id = to_(uint64_t, get_field(&directoryObject, 0)),
-            .parent_id = directoryObject.vtable->offsets[1] ? to_(uint64_t, get_field(&directoryObject, 1)) : 0,
-            .name = object_of(get_field(&directoryObject, 2))
+            .parent_id = to_(uint64_t, get_field(&directoryObject, 1)), // optional
+            .name = object_of(get_field(&directoryObject, 2)),
         };
         add_object(&directories, &new_directory);
     }
