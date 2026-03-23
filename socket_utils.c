@@ -120,6 +120,7 @@ static void refresh_connection(struct ssl_data* ssl_structs, bool is_ssl)
         wolfSSL_free(ssl_structs->ssl);
         ssl_structs->ssl = wolfSSL_new(ctx);
         wolfSSL_set_fd(ssl_structs->ssl, ssl_structs->socket);
+        wolfSSL_UseSNI(ssl_structs->ssl, WOLFSSL_SNI_HOST_NAME, ssl_structs->host_port->host, strlen(ssl_structs->host_port->host));
         if (wolfSSL_connect(ssl_structs->ssl) < 1) {
             eprintf("Failed to connect to the server: %s\n", wolfSSL_ERR_reason_error_string(wolfSSL_get_error(ssl_structs->ssl, 0)));
             exit(EXIT_FAILURE);
@@ -388,6 +389,7 @@ HttpResponse* download_url(const char* url)
     if (is_ssl) {
         ssl_structs.ssl = wolfSSL_new(ctx);
         wolfSSL_set_fd(ssl_structs.ssl, ssl_structs.socket);
+        wolfSSL_UseSNI(ssl_structs.ssl, WOLFSSL_SNI_HOST_NAME, ssl_structs.host_port->host, strlen(ssl_structs.host_port->host));
         if (wolfSSL_connect(ssl_structs.ssl) < 1) {
             eprintf("Failed to connect to the server: %s\n", wolfSSL_ERR_reason_error_string(wolfSSL_get_error(ssl_structs.ssl, 0)));
             exit(EXIT_FAILURE);

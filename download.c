@@ -265,6 +265,7 @@ void download_files(struct download_args* args)
                     if (is_ssl) {
                         new_bundle_args->ssl_structs.ssl = wolfSSL_new(ctx);
                         wolfSSL_set_fd(new_bundle_args->ssl_structs.ssl, new_bundle_args->ssl_structs.socket);
+                        wolfSSL_UseSNI(new_bundle_args->ssl_structs.ssl, WOLFSSL_SNI_HOST_NAME, new_bundle_args->ssl_structs.host_port->host, strlen(new_bundle_args->ssl_structs.host_port->host));
                         if (wolfSSL_connect(new_bundle_args->ssl_structs.ssl) < 1) {
                             eprintf("Failed to connect to the server: %s\n", wolfSSL_ERR_reason_error_string(wolfSSL_get_error(new_bundle_args->ssl_structs.ssl, 0)));
                             exit(EXIT_FAILURE);
